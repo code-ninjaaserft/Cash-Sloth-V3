@@ -1,0 +1,35 @@
+{
+  "name": "cash-sloth-v3",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": { "node": ">=24.22.1 <25", "pnpm": "11.25.0" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . && node scripts/check-boundaries.mjs",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:smoke": "playwright test && node scripts/smoke-pi-host.mjs",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:smoke",
+    "dev": "pnpm build && node scripts/start-desktop.mjs",
+    "start:desktop": "node scripts/start-desktop.mjs",
+    "start:pi": "node apps/pi-host/dist/main.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "catalog:",
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "electron": "catalog:",
+    "esbuild": "catalog:",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

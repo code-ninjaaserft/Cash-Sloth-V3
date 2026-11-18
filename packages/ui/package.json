@@ -1,0 +1,13 @@
+{
+  "name": "@cash-sloth/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@cash-sloth/domain": "workspace:*",
+    "@cash-sloth/contracts": "workspace:*",
+    "@cash-sloth/i18n": "workspace:*",
+    "react": "catalog:"
+  }
+}

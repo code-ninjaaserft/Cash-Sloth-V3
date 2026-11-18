@@ -1,0 +1,160 @@
+Faultir Softworks Source-Available License
+FSSL-1.0 — Version 1.0
+
+Copyright © 2026 Armon Flurin Elvedi.
+
+All rights reserved, except as expressly granted under this license.
+
+1. Scope
+
+This license governs original software and associated materials explicitly designated as licensed under the Faultir Softworks Source-Available License, Version 1.0 ("FSSL-1.0").
+
+"Software" means those licensed materials, including their source code, executable forms, documentation, and permitted modifications, except where a separate license or notice applies.
+
+"Licensor" means Armon Flurin Elvedi or another copyright holder who expressly applies this license to their own materials.
+
+"You" means an individual or legal entity exercising permissions under this license.
+
+This license does not automatically apply to every project, repository, asset, or contribution associated with Faultir Softworks.
+
+2. Source Code Access
+
+You may access, read, inspect, and study publicly available Software.
+
+Public access does not imply unrestricted permission to commercially exploit, redistribute, sublicense, or incorporate the Software into other distributed products.
+
+Any rights granted directly by the applicable hosting platform's terms of service remain unaffected.
+
+3. Private Non-Commercial Use
+
+Subject to compliance with this license, the Licensor grants You a non-exclusive, worldwide, royalty-free, non-transferable permission to:
+
+- Download and install the Software.
+- Run the Software for Private Non-Commercial Use.
+- Create and maintain private modifications.
+- Test, experiment with, and study the Software.
+- Make reasonable private copies and backups for permitted use.
+
+"Private Non-Commercial Use" means use for personal, educational, research, experimental, or hobby purposes without a commercial, professional, organizational, or revenue-generating objective.
+
+Private modifications must not be publicly distributed without additional authorization, except where applicable law or platform terms independently permit the relevant activity.
+
+4. Commercial Use
+
+Commercial Use requires prior written authorization from the relevant copyright holder.
+
+Commercial Use includes, without limitation:
+
+- Operating a commercial business using the Software.
+- Using the Software as part of a revenue-generating service.
+- Selling, renting, licensing, or distributing the Software commercially.
+- Providing the Software as a hosted commercial service.
+- Incorporating the Software into a commercially distributed product.
+
+Commercial Use is not automatically permitted merely because the Software is available without charge.
+
+Nonprofit organizations, associations, fundraising events, and other organizational uses are not automatically exempt. Separate written permission may be granted.
+
+5. Redistribution and Publication
+
+Except as permitted by applicable law, hosting-platform terms, or separate written authorization, You may not:
+
+- Redistribute copies of the Software.
+- Publish modified versions.
+- Sublicense the Software to third parties.
+- Offer derivative products based on substantial portions of the Software.
+- Represent unofficial versions as authorized Faultir Softworks releases.
+
+Public GitHub repositories may be viewed and forked to the extent permitted by GitHub's applicable terms of service.
+
+Such platform permissions do not independently grant broader rights to commercial exploitation, external redistribution, or publication of modified versions.
+
+6. Intellectual Property and Branding
+
+Copyright ownership remains with the respective rights holders.
+
+No trademark, trade name, logo, mascot, visual identity, or other branding right is granted by this license.
+
+Names and branding associated with Faultir Softworks, Faultir Industries, Cash Sloth, or other projects may not be used to imply official affiliation, sponsorship, authorization, or endorsement without permission.
+
+Original artwork, logos, and other assets may carry additional notices and restrictions.
+
+Nothing in this section claims ownership of third-party materials or marks.
+
+7. Third-Party Materials
+
+Third-party libraries, frameworks, assets, and other independently licensed components remain governed by their respective licenses.
+
+This license grants no rights beyond those that the relevant rights holder is entitled to grant.
+
+Where applicable third-party license terms conflict with this license, the third-party material remains subject to its own governing terms.
+
+8. Additional Permissions
+
+The Licensor may grant additional permissions through separate written agreements, including:
+
+- Commercial-use licenses.
+- Nonprofit or event-use permissions.
+- Redistribution permissions.
+- Collaboration agreements.
+- Sponsorship-related arrangements.
+
+Written authorization may be provided electronically, provided the parties and the scope of permission can be identified.
+
+No additional permission is implied merely by receiving a donation, sponsorship, or other contribution.
+
+9. Contributions
+
+Contributors retain rights in their contributions unless separately agreed otherwise.
+
+Submitting a contribution does not automatically transfer copyright ownership to the project maintainer.
+
+Contributions must be submitted with sufficient rights for their intended inclusion and distribution.
+
+Additional contributor agreements may be required where appropriate.
+
+10. License Versions and Existing Grants
+
+The Licensor may publish revised versions of this license for future distributions.
+
+Each release remains governed by the license terms under which it was validly made available, subject to applicable law.
+
+Publishing a new license version does not retroactively revoke or restrict permissions validly granted for earlier versions.
+
+Any separately granted permissions remain governed by their respective agreements.
+
+11. Termination
+
+Permissions granted under this license terminate upon a material violation of its conditions if the violation is not remedied within 30 days after written notice.
+
+Termination does not affect independently granted rights under other valid licenses.
+
+Reinstatement after termination requires written authorization, except where applicable law provides otherwise.
+
+12. Disclaimer of Warranty
+
+To the extent permitted by applicable law, the Software is provided "AS IS", without warranties of any kind.
+
+The Licensor does not guarantee that the Software is error-free, continuously available, suitable for any specific purpose, or compliant with all regulatory requirements applicable to a particular deployment.
+
+Users are responsible for evaluating the suitability of the Software for their intended use.
+
+13. Limitation of Liability
+
+To the maximum extent permitted by applicable law, the Licensor shall not be liable for indirect or consequential damages, lost profits, business interruption, or data loss arising from the use of the Software.
+
+Nothing in this license excludes or limits liability that cannot lawfully be excluded or limited.
+
+14. Governing Law
+
+This license is intended to be governed by the substantive laws of Switzerland, subject to mandatory provisions of applicable law.
+
+15. Reserved Rights
+
+All rights not expressly granted under this license are reserved by the relevant copyright holders.
+
+---
+
+Faultir Softworks Source-Available License — FSSL-1.0
+
+Publicly readable. Privately modifiable. Commercially controlled.

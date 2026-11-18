@@ -1,0 +1,5 @@
+product_key;product_name;description;variant_key;variant_name;price;sku;barcode;category_paths;product_active;variant_active
+sample-coffee;CSV Demo Coffee;Fictional example for import testing;sample-coffee-small;Small;4.00;CSV-COFFEE-S;CSV-TEST-COFFEE-S;Drinks > Hot Drinks;true;true
+sample-coffee;CSV Demo Coffee;Fictional example for import testing;sample-coffee-large;Large;5.50;CSV-COFFEE-L;CSV-TEST-COFFEE-L;Drinks > Hot Drinks;true;true
+sample-rounding;CSV Demo Rounding Bite;Fictional rounding and refund fixture;sample-rounding-default;Default;2.42;CSV-ROUNDING;CSV-TEST-ROUNDING;Test Cases > Rounding|Food > Snacks;true;true
+sample-sign;"CSV Demo Sign ""Chrysos""";"A literal separator; preserved in this description";sample-sign-default;Default;12.90;;;Merchandise > Signs \| Labels > Limited \> Edition;true;true

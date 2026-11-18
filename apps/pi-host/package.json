@@ -1,0 +1,16 @@
+{
+  "name": "@cash-sloth/pi-host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "start": "node dist/main.mjs"
+  },
+  "dependencies": {
+    "@cash-sloth/application": "workspace:*",
+    "@cash-sloth/contracts": "workspace:*",
+    "@cash-sloth/infrastructure-sqlite": "workspace:*",
+    "@cash-sloth/platform": "workspace:*"
+  }
+}

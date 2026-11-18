@@ -1,0 +1,33 @@
+packages:
+  - apps/*
+  - packages/*
+
+catalog:
+  '@eslint/js': 10.0.1
+  '@playwright/test': 1.65.0
+  '@types/node': 24.19.2
+  '@types/react': 19.3.0
+  '@types/react-dom': 19.3.0
+  electron: 45.3.0
+  drizzle-orm: 1.0.0-rc.5
+  esbuild: 0.28.2
+  eslint: 10.14.0
+  react: 19.3.1
+  react-dom: 19.3.1
+  typescript: 6.0.3
+  typescript-eslint: 8.72.2
+  vite: 8.3.8
+  vitest: 5.1.0
+  zod: 4.6.7
+
+# Only reviewed install scripts may run. Electron downloads its pinned runtime;
+# esbuild verifies/installs its platform-specific build executable.
+allowBuilds:
+  electron: true
+  esbuild: true
+strictDepBuilds: true
+autoInstallPeers: false
+minimumReleaseAgeExclude:
+  # Reviewed exact version; do not automatically exempt additional new releases.
+  - vite@8.3.8
+minimumReleaseAgeStrict: true

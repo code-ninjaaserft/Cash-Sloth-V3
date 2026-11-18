@@ -1,0 +1,13 @@
+{
+  "name": "@cash-sloth/infrastructure-sqlite",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@cash-sloth/domain": "workspace:*",
+    "@cash-sloth/application": "workspace:*",
+    "@cash-sloth/contracts": "workspace:*",
+    "drizzle-orm": "1.0.0-rc.5"
+  }
+}

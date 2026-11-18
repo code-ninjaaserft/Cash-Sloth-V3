@@ -1,0 +1,16 @@
+{
+  "productName": "Cash Sloth V3",
+  "applicationId": "com.faultirsoftworks.cashslothv3",
+  "original": {
+    "file": "original/CSV3-Logo.png",
+    "sha256": "23d5b93e8b02f309817b3b09af98da4d33543573957bcd9c1ade06a8e01b3601",
+    "width": 1254,
+    "height": 1254
+  },
+  "files": {
+    "windowsIcon": "generated/cash-sloth.ico",
+    "windowPng": "generated/cash-sloth-256.png",
+    "uiPng": "generated/cash-sloth-128.png"
+  },
+  "windowsIconSizes": [16, 20, 24, 32, 40, 48, 64, 128, 256]
+}

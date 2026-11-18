@@ -1,0 +1,264 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import type { CatalogApi, CatalogRequest, CategorySummary, ManagedProduct, ManagedVariant } from '@cash-sloth/contracts';
+import { formatChf, parseChfInput } from '@cash-sloth/domain';
+import { catalogError, categoryRows, unwrapCatalog } from './catalog-ui.js';
+import { Modal } from './modal.js';
+import { CatalogSaveGuard, submitCatalogMutation } from './catalog-save-guard.js';
+
+type ProductFields = Pick<CatalogRequest<'updateProduct'>, 'name' | 'description' | 'active' | 'imageReference'>;
+type VariantFields = Omit<CatalogRequest<'createVariant'>, 'productId' | 'expectedProductRevision'>;
+type CategoryFields = CatalogRequest<'createCategory'>;
+const nullable = (value: string): string | null => value.trim() || null;
+const cashInput = (value: number): string => formatChf(value).replace(/^CHF\s+/u, '');
+
+function VariantFieldsForm({ initial, disabled, onSave, onCancel, first = false }: {
+  initial?: ManagedVariant;
+  disabled: boolean;
+  onSave: (fields: VariantFields) => Promise<void>;
+  onCancel: () => void;
+  first?: boolean;
+}): React.JSX.Element {
+  const [name, setName] = useState(initial?.name ?? 'Default');
+  const [price, setPrice] = useState(initial ? cashInput(initial.unitPriceRappen) : '');
+  const [sku, setSku] = useState(initial?.sku ?? '');
+  const [barcode, setBarcode] = useState(initial?.barcode ?? '');
+  const [active, setActive] = useState(initial?.active ?? true);
+  const [position, setPosition] = useState(String(initial?.position ?? 0));
+  const [error, setError] = useState<string | null>(null);
+  return <form className="editor-form" onSubmit={(event) => {
+    event.preventDefault(); setError(null);
+    try {
+      const fields = { name: name.trim(), unitPriceRappen: parseChfInput(price), sku: nullable(sku), barcode: nullable(barcode), active, position: Number(position) };
+      void onSave(fields).catch((failure: unknown) => setError(catalogError(failure)));
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Enter a valid price.'); }
+  }}>
+    {error && <p className="pos-error" role="alert">{error}</p>}
+    <label>{first ? 'First variant name' : 'Variant name'}<input required maxLength={200} value={name} disabled={disabled} onChange={(event) => setName(event.target.value)} /></label>
+    <div className="form-columns"><label>Price (CHF)<input required type="text" inputMode="decimal" placeholder="0.00" value={price} disabled={disabled} onChange={(event) => setPrice(event.target.value)} /></label><label>Variant order<input type="number" min={0} max={1_000_000} step={1} value={position} disabled={disabled} onChange={(event) => setPosition(event.target.value)} /></label></div>
+    <div className="form-columns"><label>SKU<input maxLength={100} value={sku} disabled={disabled} onChange={(event) => setSku(event.target.value)} /></label><label>Barcode<input maxLength={100} value={barcode} disabled={disabled} onChange={(event) => setBarcode(event.target.value)} /></label></div>
+    <label className="inline-check"><input type="checkbox" checked={active} disabled={disabled} onChange={(event) => setActive(event.target.checked)} />Variant active</label>
+    <div className="form-actions"><button type="submit" className="primary-button" disabled={disabled}>Save variant</button><button type="button" className="subtle-button" disabled={disabled} onClick={onCancel}>Cancel variant</button></div>
+  </form>;
+}
+
+function ProductForm({ product, disabled, onSave, onCancel }: {
+  product: ManagedProduct | null;
+  disabled: boolean;
+  onSave: (fields: ProductFields, firstVariant: VariantFields | null) => Promise<void>;
+  onCancel: () => void;
+}): React.JSX.Element {
+  const [name, setName] = useState(product?.name ?? '');
+  const [description, setDescription] = useState(product?.description ?? '');
+  const [imageReference, setImageReference] = useState(product?.imageReference ?? '');
+  const [active, setActive] = useState(product?.active ?? true);
+  const [variantName, setVariantName] = useState('Default');
+  const [price, setPrice] = useState('');
+  const [sku, setSku] = useState('');
+  const [barcode, setBarcode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  return <form className="editor-form" onSubmit={(event) => {
+    event.preventDefault(); setError(null);
+    try {
+      const firstVariant = product === null ? { name: variantName.trim(), unitPriceRappen: parseChfInput(price), sku: nullable(sku), barcode: nullable(barcode), active: true, position: 0 } : null;
+      void onSave({ name: name.trim(), description: nullable(description), active, imageReference: nullable(imageReference) }, firstVariant).catch((failure: unknown) => setError(catalogError(failure)));
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Enter valid product details.'); }
+  }}>
+    {error && <p className="pos-error" role="alert">{error}</p>}
+    <label>Product name<input required maxLength={200} value={name} disabled={disabled} onChange={(event) => setName(event.target.value)} /></label>
+    <label>Description<textarea maxLength={4000} rows={3} value={description} disabled={disabled} onChange={(event) => setDescription(event.target.value)} /></label>
+    <label>Image reference<input aria-label="Image reference" maxLength={500} value={imageReference} disabled={disabled} placeholder="Optional local asset reference" onChange={(event) => setImageReference(event.target.value)} /><small>Stored for future image support. Images are not loaded.</small></label>
+    <label className="inline-check"><input type="checkbox" checked={active} disabled={disabled} onChange={(event) => setActive(event.target.checked)} />Product active</label>
+    {product === null && <fieldset><legend>First sellable variant</legend>
+      <label>First variant name<input required maxLength={200} value={variantName} disabled={disabled} onChange={(event) => setVariantName(event.target.value)} /></label>
+      <label>Price (CHF)<input required type="text" inputMode="decimal" value={price} disabled={disabled} placeholder="0.00" onChange={(event) => setPrice(event.target.value)} /></label>
+      <div className="form-columns"><label>SKU<input maxLength={100} value={sku} disabled={disabled} onChange={(event) => setSku(event.target.value)} /></label><label>Barcode<input maxLength={100} value={barcode} disabled={disabled} onChange={(event) => setBarcode(event.target.value)} /></label></div>
+    </fieldset>}
+    <div className="form-actions"><button type="submit" className="primary-button" disabled={disabled}>Save product</button><button type="button" className="subtle-button" disabled={disabled} onClick={onCancel}>Cancel product</button></div>
+  </form>;
+}
+
+function CategoryForm({ category, categories, disabled, onSave, onCancel }: {
+  category: CategorySummary | null;
+  categories: readonly CategorySummary[];
+  disabled: boolean;
+  onSave: (fields: CategoryFields) => Promise<void>;
+  onCancel: () => void;
+}): React.JSX.Element {
+  const [name, setName] = useState(category?.name ?? '');
+  const [parentId, setParentId] = useState(category?.parentId ?? '');
+  const [position, setPosition] = useState(String(category?.position ?? 0));
+  const [active, setActive] = useState(category?.active ?? true);
+  const [error, setError] = useState<string | null>(null);
+  return <form className="editor-form" onSubmit={(event) => {
+    event.preventDefault(); setError(null);
+    void onSave({ name: name.trim(), parentId: parentId || null, position: Number(position), active }).catch((failure: unknown) => setError(catalogError(failure)));
+  }}>
+    {error && <p className="pos-error" role="alert">{error}</p>}
+    <label>Category name<input required maxLength={200} value={name} disabled={disabled} onChange={(event) => setName(event.target.value)} /></label>
+    <label>Parent category<select aria-label="Parent category" value={parentId} disabled={disabled} onChange={(event) => setParentId(event.target.value)}><option value="">Top level</option>{categoryRows(categories).filter((row) => row.category.id !== category?.id).map(({ category: item, path }) => <option key={item.id} value={item.id}>{path}{item.active ? '' : ' (inactive)'}</option>)}</select></label>
+    <label>Category order<input type="number" min={0} max={1_000_000} step={1} value={position} disabled={disabled} onChange={(event) => setPosition(event.target.value)} /></label>
+    <label className="inline-check"><input type="checkbox" checked={active} disabled={disabled} onChange={(event) => setActive(event.target.checked)} />Category active</label>
+    <p className="form-hint">Deactivating a category hides its branch from checkout browsing. Products and saved sales remain intact.</p>
+    <div className="form-actions"><button type="submit" className="primary-button" disabled={disabled}>Save category</button><button type="button" className="subtle-button" disabled={disabled} onClick={onCancel}>Cancel category</button></div>
+  </form>;
+}
+
+function AssignmentForm({ product, categories, disabled, onSave }: { product: ManagedProduct; categories: readonly CategorySummary[]; disabled: boolean; onSave: (categoryIds: readonly string[], primaryCategoryId: string | null) => Promise<void> }): React.JSX.Element {
+  const [selected, setSelected] = useState<readonly string[]>(product.categoryIds);
+  const [primary, setPrimary] = useState(product.primaryCategoryId ?? '');
+  const [error, setError] = useState<string | null>(null);
+  return <form className="editor-form category-assignment" onSubmit={(event) => { event.preventDefault(); setError(null); void onSave(selected, primary || null).catch((failure: unknown) => setError(catalogError(failure))); }}>
+    <h3>Category assignments</h3>
+    {error && <p className="pos-error" role="alert">{error}</p>}
+    <div className="category-checkboxes">{categoryRows(categories).map(({ category, path }) => <label className="inline-check" key={category.id}><input type="checkbox" aria-label={`Assign ${path}`} disabled={disabled} checked={selected.includes(category.id)} onChange={(event) => {
+      setSelected(event.target.checked ? [...selected, category.id] : selected.filter((id) => id !== category.id));
+      if (!event.target.checked && primary === category.id) setPrimary('');
+    }} />{path}{category.active ? '' : ' (inactive)'}</label>)}</div>
+    {categories.length === 0 && <p className="form-hint">Create categories below to organize this product.</p>}
+    <label>Primary category<select aria-label="Primary category" value={primary} disabled={disabled} onChange={(event) => setPrimary(event.target.value)}><option value="">No primary category</option>{categoryRows(categories).filter((row) => selected.includes(row.category.id)).map(({ category, path }) => <option key={category.id} value={category.id}>{path}</option>)}</select></label>
+    <button type="submit" className="subtle-button" disabled={disabled}>Save categories</button>
+  </form>;
+}
+
+export function CatalogEditor({ api, onSaved, reviewRequired, onReviewRequiredChange }: {
+  api: CatalogApi;
+  onSaved?: () => void;
+  reviewRequired: boolean;
+  onReviewRequiredChange: (required: boolean) => void;
+}): React.JSX.Element {
+  const [products, setProducts] = useState<readonly ManagedProduct[]>([]);
+  const [categories, setCategories] = useState<readonly CategorySummary[]>([]);
+  const [query, setQuery] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
+  const [includeInactive, setIncludeInactive] = useState(true);
+  const [selected, setSelected] = useState<ManagedProduct | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [variant, setVariant] = useState<ManagedVariant | null | undefined>(undefined);
+  const [category, setCategory] = useState<CategorySummary | null | undefined>(undefined);
+  const [reading, setReading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [saveGuard] = useState(() => new CatalogSaveGuard(reviewRequired, onReviewRequiredChange));
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [formVersion, setFormVersion] = useState(0);
+  const [variantReloadVersion, setVariantReloadVersion] = useState(0);
+  const [categoryReloadVersion, setCategoryReloadVersion] = useState(0);
+  const sequence = React.useRef(0);
+  const selectionSequence = React.useRef(0);
+  const categoryPaths = React.useMemo(() => new Map(categoryRows(categories).map((row) => [row.category.id, row.path])), [categories]);
+  const refreshCategories = useCallback(async (): Promise<void> => { setCategories(unwrapCatalog(await api.listCategories({ includeInactive: true }))); }, [api]);
+  useEffect(() => { void refreshCategories().catch((failure: unknown) => setError(catalogError(failure))); }, [refreshCategories]);
+  useEffect(() => {
+    const request = ++sequence.current; setReading(true);
+    const timer = setTimeout(() => { void api.listProducts({ query, categoryId: filterCategory || null, restrictToCategory: true, includeInactive }).then((result) => { if (request === sequence.current) setProducts(unwrapCatalog(result)); }).catch((failure: unknown) => { if (request === sequence.current) setError(catalogError(failure)); }).finally(() => { if (request === sequence.current) setReading(false); }); }, query ? 140 : 0);
+    return () => { clearTimeout(timer); sequence.current += 1; };
+  }, [api, query, filterCategory, includeInactive, refreshVersion]);
+  const save = async (operation: () => Promise<void>): Promise<void> => {
+    if (saving) return;
+    setSaving(true); setError(null); setNotice(null);
+    try {
+      await saveGuard.mutate(operation); setNotice('Changes saved on this device.'); onSaved?.();
+      setRefreshVersion((value) => value + 1);
+      void refreshCategories().catch((failure: unknown) => setError(`Saved, but category refresh failed. ${catalogError(failure)}`));
+    }
+    catch (failure) {
+      setError(catalogError(failure));
+      if (saveGuard.reviewRequired) {
+        setRefreshVersion((value) => value + 1);
+        void refreshCategories().catch((readFailure: unknown) => setError(`The save remains uncertain and categories could not be refreshed. ${catalogError(readFailure)}`));
+      }
+      throw failure;
+    }
+    finally { setSaving(false); }
+  };
+  const reviewCatalog = async (): Promise<void> => {
+    if (saving || reviewing) return;
+    setReviewing(true);
+    try {
+      const saved = await saveGuard.review(
+        async () => unwrapCatalog(await api.listProducts({ query: '', categoryId: null, restrictToCategory: false, includeInactive: true })),
+        async () => unwrapCatalog(await api.listCategories({ includeInactive: true })),
+      );
+      sequence.current += 1; selectionSequence.current += 1;
+      setProducts(saved.products); setCategories(saved.categories); setQuery(''); setFilterCategory(''); setIncludeInactive(true);
+      setSelected(null); setCreating(false); setVariant(undefined); setCategory(undefined);
+      setFormVersion((value) => value + 1); setError(null); setNotice('Saved catalog reloaded. Review the records before making another change.');
+    } catch (failure) {
+      setError(`The catalog could not be fully reloaded. Changes remain blocked. ${catalogError(failure)}`);
+    } finally { setReviewing(false); }
+  };
+  const mutationsDisabled = saving || reviewRequired;
+  const reviewNotice = (): React.JSX.Element | null => reviewRequired ? <div className="recovery-notice" role="alert">
+    The last save could not be confirmed. It may already exist in the catalog. Do not repeat the create request before reviewing the saved records.
+    <button type="button" className="subtle-button" disabled={saving || reviewing} onClick={() => { void reviewCatalog(); }}>{reviewing ? 'Reloading catalog…' : 'Reload catalog and review'}</button>
+  </div> : null;
+  const openProduct = (productId: string): void => {
+    const request = ++selectionSequence.current;
+    void api.getProduct({ productId }).then((result) => {
+      if (request !== selectionSequence.current) return;
+      setSelected(unwrapCatalog(result)); setCreating(false); setError(null); setNotice(null); setFormVersion((value) => value + 1);
+    }).catch((failure: unknown) => { if (request === selectionSequence.current) setError(catalogError(failure)); });
+  };
+  return <main className="catalog-editor">
+    <header className="pos-heading"><div><span className="pos-label">Product management</span><h1>Catalog</h1><p>Manage products, their variants and category relationships.</p></div><button type="button" className="subtle-button" disabled={mutationsDisabled} onClick={() => { selectionSequence.current += 1; setSelected(null); setCreating(true); setError(null); }}>New product</button></header>
+    {error && <div className="pos-error" role="alert">{error}{selected && <button type="button" className="subtle-button" disabled={saving} onClick={() => openProduct(selected.id)}>Reload saved product</button>}</div>}
+    {variant === undefined && category === undefined && reviewNotice()}
+    <p className="catalog-save-status" role="status">{saving ? 'Saving changes…' : notice ?? ''}</p>
+    <div className="catalog-editor-grid">
+      <section className="editor-list" aria-label="Managed products">
+        <label className="search-field">Search catalog<input type="search" value={query} placeholder="Product, variant, SKU or barcode" onChange={(event) => setQuery(event.target.value)} /></label>
+        <label>Filter category<select aria-label="Filter category" value={filterCategory} onChange={(event) => setFilterCategory(event.target.value)}><option value="">All categories</option>{categoryRows(categories).map(({ category: item, path }) => <option key={item.id} value={item.id}>{path}</option>)}</select></label>
+        <label className="inline-check"><input type="checkbox" checked={includeInactive} onChange={(event) => setIncludeInactive(event.target.checked)} />Include inactive products</label>
+        <p className="catalog-read-status" role="status">{reading ? 'Updating catalog…' : `${products.length} products`}</p>
+        <div className="editor-product-list">{products.map((product) => <button type="button" key={product.id} aria-label={`Edit product ${product.name}`} aria-pressed={selected?.id === product.id} className="editor-product-row" disabled={saving} onClick={() => openProduct(product.id)}><span className="editor-product-title"><strong>{product.name}</strong><span className={`management-badge ${product.active ? '' : 'warning'}`}>{product.active ? 'Active' : 'Inactive'}</span></span><small>{product.variants.length} variant{product.variants.length === 1 ? '' : 's'} · {product.variants.filter((item) => item.active).length} active</small>{product.categoryIds.length > 0 && <small className="editor-category-path">{product.categoryIds.map((id) => categoryPaths.get(id) ?? id).join(' · ')}</small>}</button>)}</div>
+        {!reading && products.length === 0 && <div className="pos-empty">No products in this view.</div>}
+      </section>
+      <section className="editor-details" aria-label="Product editor">
+        {creating || selected ? <>
+          <div className="editor-product-title"><h2>{creating ? 'Create product' : selected?.name}</h2>{selected && <span className={`management-badge ${selected.active ? '' : 'warning'}`}>{selected.active ? 'Active product' : 'Inactive product'}</span>}</div>
+          <ProductForm key={selected ? `${selected.id}:${selected.revision}:${formVersion}` : 'new-product'} product={selected} disabled={mutationsDisabled} onCancel={() => { selectionSequence.current += 1; setCreating(false); setSelected(null); }} onSave={(fields, firstVariant) => save(async () => {
+            if (selected === null && firstVariant === null) throw new Error('A first priced variant is required.');
+            const saved = selected === null
+              ? unwrapCatalog(await submitCatalogMutation(api, 'createProduct', { ...fields, categoryIds: [], primaryCategoryId: null, firstVariant: firstVariant as VariantFields }))
+              : unwrapCatalog(await submitCatalogMutation(api, 'updateProduct', { ...fields, productId: selected.id, expectedRevision: selected.revision }));
+            setSelected(saved); setCreating(false);
+          })} />
+          {selected && <>
+            <div className="section-heading"><h3>Variants</h3><button type="button" className="subtle-button" disabled={mutationsDisabled} onClick={() => setVariant(null)}>Add variant</button></div>
+            <div className="managed-variants">{selected.variants.map((item) => <div className="managed-variant" key={item.id}><span><strong>{item.name} <span className={`management-badge ${item.active ? '' : 'warning'}`}>{item.active ? 'Active' : 'Inactive'}</span></strong><small>{item.sku ? `SKU ${item.sku} · ` : ''}{item.barcode ? `Barcode ${item.barcode} · ` : ''}Order {item.position}</small></span><strong>{formatChf(item.unitPriceRappen)}</strong><button type="button" className="subtle-button" aria-label={`Edit variant ${item.name}`} disabled={mutationsDisabled} onClick={() => setVariant(item)}>Edit</button></div>)}</div>
+            <AssignmentForm key={`categories:${selected.id}:${selected.revision}:${formVersion}`} product={selected} categories={categories} disabled={mutationsDisabled} onSave={(categoryIds, primaryCategoryId) => save(async () => { setSelected(unwrapCatalog(await submitCatalogMutation(api, 'assignCategories', { productId: selected.id, expectedRevision: selected.revision, categoryIds, primaryCategoryId }))); })} />
+            <p className="form-hint">ID {selected.id}<br />Created {new Date(selected.createdAt).toLocaleString('en-CH')} · Modified {new Date(selected.updatedAt).toLocaleString('en-CH')} · Revision {selected.revision}</p>
+          </>}
+        </> : <div className="pos-empty">Choose a product to edit, or create one with its first priced variant.</div>}
+      </section>
+    </div>
+    <section className="category-management" aria-label="Category management">
+      <div className="section-heading"><div><h2>Categories</h2><p className="form-hint">Move a category by changing its parent and display order. Categories are deactivated rather than deleted.</p></div><button type="button" className="subtle-button" disabled={mutationsDisabled} onClick={() => setCategory(null)}>New category</button></div>
+      <div className="category-list">{categoryRows(categories).map(({ category: item, path }) => <button type="button" className="category-row" key={item.id} aria-label={`Edit category ${path}`} disabled={saving} onClick={() => setCategory(item)}><span>{path}</span><small>{item.active ? 'Active' : 'Inactive'} · {item.productCount} products · Order {item.position}</small></button>)}</div>
+      {categories.length === 0 && <p className="form-hint">No categories yet. Create a top-level category, then add children.</p>}
+    </section>
+    {variant !== undefined && selected && <Modal title={variant === null ? 'Add variant' : 'Edit variant'} onClose={() => { if (!saving) setVariant(undefined); }}>
+      {reviewNotice()}
+      <VariantFieldsForm key={variant ? `${variant.id}:${variant.revision}:${variantReloadVersion}` : 'new'} {...(variant ? { initial: variant } : {})} disabled={mutationsDisabled} onCancel={() => setVariant(undefined)} onSave={(fields) => save(async () => {
+        const saved = variant === null ? unwrapCatalog(await submitCatalogMutation(api, 'createVariant', { productId: selected.id, expectedProductRevision: selected.revision, ...fields })) : unwrapCatalog(await submitCatalogMutation(api, 'updateVariant', { productId: selected.id, variantId: variant.id, expectedProductRevision: selected.revision, expectedRevision: variant.revision, ...fields }));
+        setSelected(saved); setVariant(undefined);
+      })} />
+      {variant && <button type="button" className="subtle-button reload-editor" disabled={saving} onClick={() => { void api.getProduct({ productId: selected.id }).then((result) => {
+        const saved = unwrapCatalog(result); setSelected(saved); setVariant(saved.variants.find((item) => item.id === variant.id)); setVariantReloadVersion((value) => value + 1); setError(null);
+      }).catch((failure: unknown) => setError(catalogError(failure))); }}>Reload saved variant</button>}
+    </Modal>}
+    {category !== undefined && <Modal title={category === null ? 'New category' : 'Edit category'} onClose={() => { if (!saving) setCategory(undefined); }}>
+      {reviewNotice()}
+      <CategoryForm key={category ? `${category.id}:${category.revision}:${categoryReloadVersion}` : 'new'} category={category} categories={categories} disabled={mutationsDisabled} onCancel={() => setCategory(undefined)} onSave={(fields) => save(async () => {
+        if (category === null) unwrapCatalog(await submitCatalogMutation(api, 'createCategory', fields));
+        else unwrapCatalog(await submitCatalogMutation(api, 'updateCategory', { categoryId: category.id, expectedRevision: category.revision, ...fields }));
+        setCategory(undefined);
+      })} />
+      {category && <button type="button" className="subtle-button reload-editor" disabled={saving} onClick={() => { void api.listCategories({ includeInactive: true }).then((result) => {
+        const saved = unwrapCatalog(result); setCategories(saved); setCategory(saved.find((item) => item.id === category.id)); setCategoryReloadVersion((value) => value + 1); setError(null);
+      }).catch((failure: unknown) => setError(catalogError(failure))); }}>Reload saved category</button>}
+    </Modal>}
+  </main>;
+}
