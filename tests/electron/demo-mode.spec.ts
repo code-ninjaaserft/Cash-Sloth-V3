@@ -1,0 +1,66 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { _electron as electron, expect, test } from '@playwright/test';
+import { navigateTo } from './navigation-helpers.js';
+
+test('demo sales stay isolated, both screens are marked, mode changes require idle and restart is live', async () => {
+  test.setTimeout(120_000);
+  const directory = await mkdtemp(join(tmpdir(), 'sloth-demo-test-'));
+  const environment = { ...process.env }; delete environment.ELECTRON_RUN_AS_NODE;
+  const launch = () => electron.launch({ args: [resolve('apps/desktop')], env: { ...environment, CASH_SLOTH_CHANNEL: 'development', CASH_SLOTH_DATA_ROOT: directory } });
+  let app = await launch();
+  try {
+    let page = await app.firstWindow();
+    const finishCashSale = async () => {
+      await page.getByRole('button', { name: 'Add Chocolate', exact: true }).click();
+      await page.getByRole('button', { name: 'Checkout', exact: true }).click();
+      await page.getByRole('button', { name: 'Cash', exact: true }).click();
+      await page.getByRole('button', { name: 'Add cash CHF 10.00', exact: true }).click();
+      await page.getByRole('button', { name: 'Complete transaction', exact: true }).click();
+      await page.getByRole('button', { name: 'Do not print', exact: true }).click();
+    };
+    await finishCashSale();
+    const realHistory = await page.evaluate(() => window.cashSloth!.payments.listRecentSales({}));
+    expect(realHistory.ok && realHistory.value.length).toBe(1);
+    await page.getByRole('button', { name: 'Add Chocolate', exact: true }).click();
+    expect(await page.evaluate(() => window.cashSloth!.demo!.setMode({ enabled: true }))).toMatchObject({ ok: false });
+    await page.evaluate(async () => { const result = await window.cashSloth!.pos.getCart({}); if (result.ok && result.value) await window.cashSloth!.pos.clearCart({ cartId: result.value.cart.id, expectedRevision: result.value.cart.revision }); });
+    await navigateTo(page, 'Settings');
+    const opened = app.waitForEvent('window');
+    await page.getByRole('button', { name: 'Open customer display', exact: true }).click();
+    const customer = await opened;
+    await page.getByRole('button', { name: 'Activate demo mode', exact: true }).click({ noWaitAfter: true });
+    await expect(page.locator('.demo-banner')).toContainText('DEMO MODE');
+    await expect(customer.locator('.demo-banner')).toContainText('DEMO MODE');
+    const categoriesBefore = await page.evaluate(() => window.cashSloth!.catalog.listCategories({ includeInactive: true }));
+    expect(await page.evaluate(() => window.cashSloth!.catalog.createCategory({ name: 'Demo only', parentId: null, active: true, position: 99 }))).toMatchObject({ ok: true });
+    await finishCashSale();
+    expect(await page.evaluate(() => window.cashSloth!.payments.listRecentSales({}))).toEqual(realHistory);
+    // History removal must never touch the real ledger during demonstration.
+    expect(await page.evaluate(async () => { try { await window.cashSloth!.history.removeSale({ saleId: 'any-sale', reason: 'demo' }); return false; } catch { return true; } })).toBe(true);
+    await page.reload(); await expect(page.locator('.demo-banner')).toBeVisible();
+    await page.getByRole('button', { name: 'Add Chocolate', exact: true }).click();
+    expect(await page.evaluate(() => window.cashSloth!.demo!.setMode({ enabled: false }))).toMatchObject({ ok: false });
+    await page.evaluate(async () => { const result = await window.cashSloth!.pos.getCart({}); if (result.ok && result.value) await window.cashSloth!.pos.clearCart({ cartId: result.value.cart.id, expectedRevision: result.value.cart.revision }); });
+    await navigateTo(page, 'Settings');
+    await page.getByRole('button', { name: 'End demo mode', exact: true }).click({ noWaitAfter: true });
+    await expect(page.locator('.demo-banner')).toHaveCount(0);
+    await expect(customer.locator('.demo-banner')).toHaveCount(0);
+    expect(await page.evaluate(() => window.cashSloth!.payments.listRecentSales({}))).toEqual(realHistory);
+    expect(await page.evaluate(() => window.cashSloth!.catalog.listCategories({ includeInactive: true }))).toEqual(categoriesBefore);
+    await finishCashSale();
+    const normalHistory = await page.evaluate(() => window.cashSloth!.payments.listRecentSales({}));
+    expect(normalHistory.ok && normalHistory.value.length).toBe(2);
+    await navigateTo(page, 'Settings');
+    await page.getByRole('button', { name: 'Activate demo mode', exact: true }).click({ noWaitAfter: true });
+    await expect(page.locator('.demo-banner')).toBeVisible();
+    await page.screenshot({ path: 'test-results/demo-register.png' });
+    await customer.screenshot({ path: 'test-results/demo-customer.png' });
+    await app.close(); app = await launch(); page = await app.firstWindow();
+    await expect(page.locator('.pos-shell')).toBeVisible();
+    await expect(page.locator('.demo-banner')).toHaveCount(0);
+    expect(await page.evaluate(() => window.cashSloth!.payments.listRecentSales({}))).toEqual(normalHistory);
+    expect(await page.evaluate(() => window.cashSloth!.demo!.getState({}))).toEqual({ enabled: false, sessionId: null });
+  } finally { await app.close(); await rm(directory, { recursive: true, force: true, maxRetries: 5 }); }
+});

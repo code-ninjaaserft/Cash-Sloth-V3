@@ -59,7 +59,7 @@ describe('transactional demo and CSV management', () => {
   });
   it('coexists with ordinary user-created products and preserves optional metadata and inactive fixtures', () => {
     const catalog = createCatalogService(createCatalogStore(connection), runtime);
-    const own = value(catalog.createProduct({ name: 'Own product', description: 'Do not overwrite', active: true, imageReference: null, categoryIds: [], primaryCategoryId: null, firstVariant: { name: 'Default', unitPriceRappen: 999, sku: null, barcode: null, active: true, position: 0 } }));
+    const own = value(catalog.createProduct({ name: 'Own product', description: 'Do not overwrite', active: true, imageReference: null, categoryIds: [value(catalog.createCategory({ name: 'Own category', parentId: null, active: true, position: 0 })).id], primaryCategoryId: null, firstVariant: { name: 'Default', unitPriceRappen: 999, sku: null, barcode: null, active: true, position: 0 } }));
     apply(demo()); expect(count('products')).toBe(45); expect(value(catalog.getProduct({ productId: own.id }))).toEqual(own);
     const all = createCatalogStore(connection).listProducts(); expect(all.find((entry) => entry.id === 'demo-p-inactive-product')?.active).toBe(false);
     expect(all.find((entry) => entry.id === 'demo-p-variant-availability')?.variants.map((entry) => entry.active)).toEqual([true, false]);
@@ -190,8 +190,9 @@ describe('transactional demo and CSV management', () => {
       historical.sqlite.exec(migration.sql);
       historical.sqlite.prepare('INSERT INTO schema_migrations VALUES(?,?,?,?)').run(migration.version, migration.name, createHash('sha256').update(migration.sql).digest('hex'), runtime.now());
     }
+    historical.sqlite.exec("INSERT INTO categories (id,name,parent_id,active,display_order,revision) VALUES ('legacy-category','Own category',NULL,1,0,0)");
     const catalog = createCatalogService(createCatalogStore(historical), runtime);
-    const product = value(catalog.createProduct({ name: 'Existing V3 Product', description: 'Keep original', active: true, imageReference: null, categoryIds: [], primaryCategoryId: null, firstVariant: { name: 'Original', unitPriceRappen: 347, sku: 'EXISTING-V3', barcode: 'TEST-V3', active: true, position: 0 } }));
+    const product = value(catalog.createProduct({ name: 'Existing V3 Product', description: 'Keep original', active: true, imageReference: null, categoryIds: ['legacy-category'], primaryCategoryId: null, firstVariant: { name: 'Original', unitPriceRappen: 347, sku: 'EXISTING-V3', barcode: 'TEST-V3', active: true, position: 0 } }));
     const variantId = product.variants[0]?.id ?? '';
     const pos = createPosService(createPosStore(historical), runtime); const payments = createPaymentsService(createFinanceStore(historical), runtime);
     const add = () => { const cart = value(pos.getCart({})).cart; return value(pos.addItem({ cartId: cart.id, expectedRevision: cart.revision, variantId })); };

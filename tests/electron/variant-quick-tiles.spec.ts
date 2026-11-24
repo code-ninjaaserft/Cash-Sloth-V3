@@ -141,7 +141,7 @@ test('cart badges and exact-variant quick adds follow persisted snapshots, filte
     await badge('product', 4);
     await badge('Small', 3);
     expect(await readCart()).toEqual(saved);
-    const oldLine = page.locator('article.cart-line').filter({ hasText: 'Small · CHF 2.10 each' });
+    const oldLine = page.locator('article.cart-line').filter({ hasText: 'CHF 2.10 each' }).filter({ has: page.getByText('Alpine soda — Small', { exact: true }) });
     await oldLine.getByRole('button', { name: 'Decrease Alpine soda — Small', exact: true }).click();
     await badge('Small', 2);
     await oldLine.getByRole('button', { name: 'Remove Alpine soda — Small', exact: true }).click();
@@ -168,6 +168,7 @@ test('cart badges and exact-variant quick adds follow persisted snapshots, filte
     await expect(product()).toBeFocused();
     const lockedCart = await readCart();
     await button('Checkout').click();
+    await button('More payment options').click();
     await expect(quick('Small')).toBeDisabled();
     await button('Card').click();
     await page.getByRole('textbox', { name: 'Payment amount (CHF)' }).fill('1.00');

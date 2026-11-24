@@ -12,7 +12,7 @@ function normalized(request: HistoryExportRequest): NormalizedHistoryFilters {
   const { dateFrom, dateTo, ...filters } = HistoryExportRequestSchema.parse({ filters: request.filters, sort: request.sort }).filters;
   return { ...filters, ...swissHistoryRange(dateFrom, dateTo) };
 }
-/** Read-only history/export orchestration; the host alone owns export dialogs and files. */
+/** History visibility and export orchestration; the host alone owns export dialogs and files. */
 export function createHistoryService(store: HistoryStore, runtime: Pick<PosRuntime, 'now'>): HistoryService {
   function safe<K extends HistoryMethod>(method: K, request: HistoryRequest<K>, operation: () => unknown): HistoryResponse<K> {
     try {
@@ -21,6 +21,18 @@ export function createHistoryService(store: HistoryStore, runtime: Pick<PosRunti
     } catch (error) { return HISTORY_IPC_CONTRACTS[method].response.parse(failure(error)) as HistoryResponse<K>; }
   }
   return {
+    previewRemoval: (request) => safe('previewRemoval', request, () => { if (!store.previewRemoval) throw new DomainError('NOT_SUPPORTED', 'History deletion is unavailable.'); return store.previewRemoval(request.scope, request.eventId); }),
+    removeHistory: (request) => safe('removeHistory', request, () => { if (!store.removeHistory) throw new DomainError('NOT_SUPPORTED', 'History deletion is unavailable.'); const at = runtime.now(); assertFinancialTimestamp(at); return store.removeHistory(request, at); }),
+    getEvents: (request) => safe('getEvents', request, () => {
+      if (!store.getEvents) throw new DomainError('NOT_SUPPORTED', 'Event history is unavailable.');
+      return store.getEvents();
+    }),
+    removeSale: (request) => safe('removeSale', request, () => {
+      if (!store.removeSale) throw new DomainError('NOT_SUPPORTED', 'History removal is unavailable.');
+      const at = runtime.now(); assertFinancialTimestamp(at);
+      store.removeSale(request.saleId, request.reason.trim(), at);
+      return { removed: true };
+    }),
     search: (request) => safe('search', request, () => store.search(normalized(request), request.sort, request.page, request.pageSize)),
     getSaleContext: (request) => safe('getSaleContext', request, () => { const context = store.getSaleContext(request.saleId); if (context === null) throw new DomainError('NOT_FOUND', 'Sale not found.'); return context; }),
     prepareExport: (request) => {

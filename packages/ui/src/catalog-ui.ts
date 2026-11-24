@@ -1,3 +1,4 @@
+import { t } from './preferences.js';
 import { compareCatalogOrder, type CartItem } from '@cash-sloth/domain';
 
 export interface CategoryNode { id: string; name: string; parentId: string | null; position: number }
@@ -23,6 +24,8 @@ export function categoryRows<T extends CategoryNode>(categories: readonly T[]): 
   }
   return rows;
 }
+
+export function variantLabel(name: string): string { return name === 'Default' ? t('Default') : name; }
 
 export function cartLineLabel(item: Pick<CartItem, 'productName' | 'variantName'>): string {
   return item.variantName === 'Default' ? item.productName : `${item.productName} — ${item.variantName}`;

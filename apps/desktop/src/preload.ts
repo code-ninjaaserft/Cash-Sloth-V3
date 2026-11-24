@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import {
+  PROMOTIONS_CONTRACTS,
+  type PromotionsApi,
+  TICKETDESK_CONTRACTS,
+  TICKETS_CONTRACTS,
+  type TicketsApi,
+  DEMO_CONTRACTS,
+  CUSTOMER_DISPLAY_CONTRACTS,
   SYSTEM_GET_INFO_CHANNEL,
   SystemGetInfoRequestSchema,
   SystemInfoSchema,
@@ -8,8 +15,11 @@ import {
   PAYMENTS_IPC_CONTRACTS,
   MANAGEMENT_IPC_CONTRACTS,
   HISTORY_IPC_CONTRACTS,
+  PRESETS_IPC_CONTRACTS,
+  type PresetsApi,
   FILES_IPC_CONTRACTS,
   type CashSlothApi,
+  type CustomerPaymentPreview,
   type PosApi,
   type CatalogApi,
   type PaymentsApi,
@@ -42,6 +52,9 @@ const pos: PosApi = Object.freeze({
 });
 
 const catalog: CatalogApi = Object.freeze({
+  removeVariant: (input) => invoke(CATALOG_IPC_CONTRACTS.removeVariant, input),
+  removeProduct: (input) => invoke(CATALOG_IPC_CONTRACTS.removeProduct, input),
+  removeCategory: (input) => invoke(CATALOG_IPC_CONTRACTS.removeCategory, input),
   listProducts: (input) => invoke(CATALOG_IPC_CONTRACTS.listProducts, input),
   getProduct: (input) => invoke(CATALOG_IPC_CONTRACTS.getProduct, input),
   createProduct: (input) => invoke(CATALOG_IPC_CONTRACTS.createProduct, input),
@@ -55,6 +68,9 @@ const catalog: CatalogApi = Object.freeze({
 });
 
 const payments: PaymentsApi = Object.freeze({
+ completeTeam: input=>invoke(PAYMENTS_IPC_CONTRACTS.completeTeam,input),
+ listTeam: input=>invoke(PAYMENTS_IPC_CONTRACTS.listTeam,input),
+  setTip: (input) => invoke(PAYMENTS_IPC_CONTRACTS.setTip, input),
   startCheckout: (input) => invoke(PAYMENTS_IPC_CONTRACTS.startCheckout, input),
   getCheckout: (input) => invoke(PAYMENTS_IPC_CONTRACTS.getCheckout, input),
   getActiveCheckout: (input) => invoke(PAYMENTS_IPC_CONTRACTS.getActiveCheckout, input),
@@ -83,6 +99,10 @@ const management: ManagementApi = Object.freeze({
   getImportOperation: (input) => invoke(MANAGEMENT_IPC_CONTRACTS.getImportOperation, input),
 });
 const history: HistoryApi = Object.freeze({
+  previewRemoval: (input) => invoke(HISTORY_IPC_CONTRACTS.previewRemoval, input),
+  removeHistory: (input) => invoke(HISTORY_IPC_CONTRACTS.removeHistory, input),
+  getEvents: (input) => invoke(HISTORY_IPC_CONTRACTS.getEvents, input),
+  removeSale: (input) => invoke(HISTORY_IPC_CONTRACTS.removeSale, input),
   search: (input) => invoke(HISTORY_IPC_CONTRACTS.search, input),
   getSaleContext: (input) => invoke(HISTORY_IPC_CONTRACTS.getSaleContext, input),
 });
@@ -91,7 +111,24 @@ const files: FilesApi = Object.freeze({
   exportSalesHistory: (input) => invoke(FILES_IPC_CONTRACTS.exportSalesHistory, input),
 });
 
+const presets: PresetsApi = Object.freeze({
+  copy: (input) => invoke(PRESETS_IPC_CONTRACTS.copy, input),
+  remove: (input) => invoke(PRESETS_IPC_CONTRACTS.remove, input),
+  update: (input) => invoke(PRESETS_IPC_CONTRACTS.update, input),
+  getState: (input) => invoke(PRESETS_IPC_CONTRACTS.getState, input),
+  save: (input) => invoke(PRESETS_IPC_CONTRACTS.save, input),
+  load: (input) => invoke(PRESETS_IPC_CONTRACTS.load, input),
+  getOperation: (input) => invoke(PRESETS_IPC_CONTRACTS.getOperation, input),
+});
+const tickets: TicketsApi = Object.freeze({ invalidate: input=>invoke(TICKETS_CONTRACTS.invalidate,input),setExpiry:input=>invoke(TICKETS_CONTRACTS.setExpiry,input), listForSale: (input) => invoke(TICKETS_CONTRACTS.listForSale, input), lookup: (input) => invoke(TICKETS_CONTRACTS.lookup, input), redeem: (input) => invoke(TICKETS_CONTRACTS.redeem, input) });
+const promotions=Object.freeze<PromotionsApi>({getState:input=>invoke(PROMOTIONS_CONTRACTS.getState,input),saveTemplate:input=>invoke(PROMOTIONS_CONTRACTS.saveTemplate,input),removeTemplate:input=>invoke(PROMOTIONS_CONTRACTS.removeTemplate,input),issue:input=>invoke(PROMOTIONS_CONTRACTS.issue,input),control:input=>invoke(PROMOTIONS_CONTRACTS.control,input),apply:input=>invoke(PROMOTIONS_CONTRACTS.apply,input),clear:input=>invoke(PROMOTIONS_CONTRACTS.clear,input),walletPay:input=>invoke(PROMOTIONS_CONTRACTS.walletPay,input),walletCancel:input=>invoke(PROMOTIONS_CONTRACTS.walletCancel,input)});
 const api: CashSlothApi = Object.freeze({
+ promotions,
+  ticketdesk: Object.freeze({ open: (input: Record<string, never>) => invoke(TICKETDESK_CONTRACTS.open, input) }),
+  tickets,
+  demo: Object.freeze({ getState: (input: Record<string, never>) => invoke(DEMO_CONTRACTS.getState, input), setMode: (input: { enabled: boolean }) => invoke(DEMO_CONTRACTS.setMode, input) }),
+  customerDisplay: Object.freeze({ open: (input: Record<string, never>) => invoke(CUSTOMER_DISPLAY_CONTRACTS.open, input), preview: (input: CustomerPaymentPreview) => invoke(CUSTOMER_DISPLAY_CONTRACTS.preview, input) }),
+  presets,
   system: Object.freeze({
     getInfo: () => invoke({ channel: SYSTEM_GET_INFO_CHANNEL, request: SystemGetInfoRequestSchema, response: SystemInfoSchema }, {}),
   }),

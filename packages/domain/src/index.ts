@@ -6,3 +6,9 @@ export * from './catalog.js';
 export * from './finance.js';
 export * from './catalog-import.js';
 export * from './history-date.js';
+
+export * from './tips.js';
+
+export * from './tickets.js';
+
+export * from './discounts.js';

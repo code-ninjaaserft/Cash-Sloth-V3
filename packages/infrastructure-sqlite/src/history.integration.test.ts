@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createHistoryService, createPaymentsService, createPosService, type HistoryService, type PaymentsService, type PosService } from '@cash-sloth/application';
+import { createHistoryService, createPaymentsService, createPosService, createPresetService, type HistoryService, type PaymentsService, type PosService } from '@cash-sloth/application';
+import { createPresetStore } from './preset-store.js';
 import { parseCatalogCsv, swissHistoryRange } from '@cash-sloth/domain';
 import type { FinancialSale, HistoryFilters, HistorySort, PaymentMethod, Result } from '@cash-sloth/contracts';
 import { openDatabase, type DatabaseConnection } from './connection.js';
@@ -61,6 +62,145 @@ describe('SQL history and financial CSV export', () => {
     const parsed = parseCatalogCsv(content, ',');
     return parsed.rows.map((row) => Object.fromEntries(parsed.headers.map((name, index) => [name, row.values[index] ?? ''])));
   }
+
+  it('separates event identities across renames, copies and deleted presets', () => {
+    const unassigned = sale();
+    const presets = createPresetService(createPresetStore(connection), runtime);
+    const state = () => value(presets.getState({}));
+    const a = value(presets.save({ operationId: runtime.newId(), catalogVersion: state().catalogVersion, name: 'Festival', presetId: null, expectedRevision: null, empty: false })).active!.id;
+    const first = sale('card');
+    const current = state().presets.find((p) => p.id === a)!;
+    value(presets.save({ operationId: runtime.newId(), catalogVersion: state().catalogVersion, name: 'Renamed festival', presetId: a, expectedRevision: current.revision, empty: false }));
+    const second = sale('twint');
+    const source = state().presets.find((p) => p.id === a)!;
+    const b = value(presets.copy({ operationId: runtime.newId(), catalogVersion: state().catalogVersion, presetId: a, expectedRevision: source.revision, name: 'Festival' })).active!.id;
+    const third = sale('card');
+    expect(first.eventId).toBe(a); expect(second.eventId).toBe(a); expect(third.eventId).toBe(b);
+    expect(first.eventTitle).toBe('Festival'); expect(second.eventTitle).toBe('Renamed festival');
+    expect(search({ scope: 'event', eventId: a }).items.map((p) => p.id).sort()).toEqual([first.id, second.id].sort());
+    expect(search({ scope: 'event', eventId: b }).items.map((p) => p.id)).toEqual([third.id]);
+    expect(search({ scope: 'event', eventId: null }).items.map((p) => p.id)).toEqual([unassigned.id]);
+    expect(search({ scope: 'device' }).total).toBe(4);
+    const savedB = state().presets.find((p) => p.id === b)!;
+    value(presets.remove({ operationId: runtime.newId(), catalogVersion: state().catalogVersion, presetId: b, expectedRevision: savedB.revision }));
+    expect(value(history.getEvents({})).events).toEqual(expect.arrayContaining([{ id: a, title: 'Renamed festival' }, { id: b, title: 'Festival' }]));
+    expect(search({ scope: 'event', eventId: b }).total).toBe(1);
+    const exported = value(history.prepareExport({ filters: { ...filters, scope: 'event', eventId: a }, sort }));
+    expect(exported.saleCount).toBe(2);
+    expect(csvRows(exported.files[0]!.content).map((row) => row['event_id'])).toEqual([a, a]);
+    connection.close(); connection = openDatabase(join(directory, 'history.sqlite')); runMigrations(connection); bind();
+    expect(search({ scope: 'event', eventId: b }).total).toBe(1);
+  });
+
+  it.each(['payments', 'legacy'] as const)('permanently removes %s receipts and financial totals while retaining other sales', (source) => {
+    const original = source === 'legacy' ? legacy() : sale('card');
+    refund(original, 1);
+    const other = sale('twint', 1000);
+    const request = { saleId: original.id, reason: 'Wrong product selected' };
+    expect(history.removeSale({ ...request, reason: '  ' })).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+    expect(history.removeSale({ ...request, saleId: 'missing' })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    value(history.removeSale(request)); value(history.removeSale(request));
+    expect(search({ includeRemoved: true }).items.map((s) => s.id)).toEqual([other.id]);
+    expect(payments.getSaleDetails({ saleId: original.id })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    expect(value(payments.getSaleDetails({ saleId: other.id })).sale).toEqual(other);
+    const exported = value(history.prepareExport({ filters: { ...filters, includeRemoved: true }, sort }));
+    expect(exported.saleCount).toBe(1); expect(exported.totals).toEqual({ paidRappen: '1000', refundedRappen: '0', netRappen: '1000' });
+    expect(connection.sqlite.prepare('SELECT 1 FROM carts WHERE id=?').get(original.cartId)).toBeUndefined();
+    expect(connection.sqlite.prepare('SELECT 1 FROM refunds WHERE sale_id=?').get(original.id)).toBeUndefined();
+    expect(connection.sqlite.prepare('SELECT 1 FROM sale_purge_records').get()).toBeUndefined();
+    expect(connection.sqlite.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    connection.close(); connection = openDatabase(databaseFile); runMigrations(connection); bind();
+    expect(search({ includeRemoved: true }).total).toBe(1);
+    expect(payments.getSaleDetails({ saleId: original.id }).ok).toBe(false);
+  });
+
+  it('removes tip income and all payment evidence when an incorrect sale is deleted', () => {
+    const saved = cart(247);
+    const checkout = value(payments.startCheckout({ cartId: saved.id, expectedRevision: saved.revision }));
+    value(payments.setTip({ sessionId: checkout.session.id, expectedTipRappen: 0, tipRappen: 253 }));
+    const attempt = value(payments.preparePayment({ sessionId: checkout.session.id, idempotencyKey: runtime.newId(), method: 'card', intendedRappen: 500 }));
+    value(payments.confirmPayment({ attemptId: attempt.id, operatorConfirmed: true }));
+    const original = value(payments.completeCheckout({ sessionId: checkout.session.id }));
+    expect(value(history.prepareExport({ filters, sort })).totals.paidRappen).toBe('500');
+    value(history.removeSale({ saleId: original.id, reason: 'Incorrect entry' }));
+    expect(value(history.prepareExport({ filters: { ...filters, includeRemoved: true }, sort })).totals).toEqual({ paidRappen: '0', refundedRappen: '0', netRappen: '0' });
+    expect(value(payments.listRecentSales({}))).toEqual([]);
+    expect(payments.getCheckout({ sessionId: checkout.session.id }).ok).toBe(false);
+    expect(connection.sqlite.prepare('SELECT 1 FROM payment_attempts WHERE id=?').get(attempt.id)).toBeUndefined();
+    expect(connection.sqlite.prepare('SELECT 1 FROM financial_events WHERE reference_id=?').get(attempt.id)).toBeUndefined();
+  });
+
+  it('purges previously hidden sales and rolls back all changes when a deletion fails', () => {
+    const original = sale('card');
+    connection.sqlite.prepare('INSERT INTO removed_history_sales VALUES(?,?,?)').run(original.id, now, 'Old hidden sale');
+    connection.sqlite.exec("CREATE TEMP TRIGGER fail_sale_purge BEFORE DELETE ON financial_sales BEGIN SELECT RAISE(ABORT, 'Injected failure'); END");
+    expect(history.removeSale({ saleId: original.id, reason: 'Incorrect' }).ok).toBe(false);
+    expect(value(payments.getSaleDetails({ saleId: original.id })).sale).toEqual(original);
+    expect(connection.sqlite.prepare('SELECT 1 FROM sale_purge_records').get()).toBeUndefined();
+    connection.sqlite.exec('DROP TRIGGER fail_sale_purge');
+    value(history.removeSale({ saleId: original.id, reason: 'Incorrect' }));
+    expect(search({ includeRemoved: true }).total).toBe(0);
+    expect(payments.getSaleDetails({ saleId: original.id }).ok).toBe(false);
+  });
+
+  it('blocks deletion during a pending refund and rolls back failed visibility writes', () => {
+    const original = sale('card');
+    const attempt = value(payments.prepareRefund({ saleId: original.id, idempotencyKey: runtime.newId(), method: 'card', items: [{ saleItemId: original.items[0]!.id, quantity: 1 }] }));
+    expect(history.removeSale({ saleId: original.id, reason: 'Incorrect' })).toMatchObject({ ok: false, error: { code: 'REFUND_PENDING' } });
+    value(payments.confirmRefund({ attemptId: attempt.id, operatorConfirmed: true }));
+    connection.sqlite.exec("CREATE TEMP TRIGGER fail_history_hide BEFORE INSERT ON removed_history_sales BEGIN SELECT RAISE(ABORT, 'Injected failure'); END");
+    expect(history.removeSale({ saleId: original.id, reason: 'Incorrect' }).ok).toBe(false);
+    expect(search().total).toBe(1);
+    expect(value(payments.getSaleDetails({ saleId: original.id })).sale).toEqual(original);
+  });
+
+  it('clears one whole event independently and replays without deleting later sales', () => {
+    const unassigned = legacy();
+    const presets = createPresetService(createPresetStore(connection), runtime);
+    const state = () => value(presets.getState({}));
+    const a = value(presets.save({ operationId: runtime.newId(), catalogVersion: state().catalogVersion, name: 'Summer', presetId: null, expectedRevision: null, empty: false })).active!.id;
+    sale('card'); sale('twint');
+    const source = state().presets.find((p) => p.id === a)!;
+    const b = value(presets.copy({ operationId: runtime.newId(), catalogVersion: state().catalogVersion, presetId: a, expectedRevision: source.revision, name: 'Winter' })).active!.id;
+    const winter = sale('card');
+    const preview = value(history.previewRemoval({ scope: 'event', eventId: a })); expect(preview.count).toBe(2);
+    const request = { scope: 'event' as const, eventId: a, operationId: runtime.newId(), expectedVersion: preview.version, reason: 'Clear event' };
+    expect(value(history.removeHistory(request))).toEqual({ removedCount: 2 });
+    expect(search({ scope: 'event', eventId: a }).total).toBe(0);
+    expect(search({ scope: 'event', eventId: b }).items.map((s) => s.id)).toEqual([winter.id]);
+    expect(search({ scope: 'event', eventId: null }).items.map((s) => s.id)).toEqual([unassigned.id]);
+    const savedA = state().presets.find((p) => p.id === a)!;
+    value(presets.load({ operationId: runtime.newId(), catalogVersion: state().catalogVersion, presetId: a, expectedRevision: savedA.revision }));
+    const later = sale('card');
+    expect(value(history.removeHistory(request))).toEqual({ removedCount: 2 });
+    expect(search({ scope: 'event', eventId: a }).items.map((s) => s.id)).toEqual([later.id]);
+    expect(history.removeHistory({ ...request, operationId: runtime.newId() })).toMatchObject({ ok: false, error: { code: 'CONFLICT' } });
+    const device = value(history.previewRemoval({ scope: 'device', eventId: null })); expect(device.count).toBe(3);
+    expect(value(history.removeHistory({ scope: 'device', eventId: null, operationId: runtime.newId(), expectedVersion: device.version, reason: 'Reset device' })).removedCount).toBe(3);
+    expect(search({ includeRemoved: true }).total).toBe(0);
+    expect(state().presets).toHaveLength(2);
+    expect(value(history.prepareExport({ filters, sort })).totals.netRappen).toBe('0');
+  });
+
+  it('rolls back an entire bulk deletion if a later sale fails and rejects reused operation keys', () => {
+    const first = sale('card'), second = sale('twint');
+    const preview = value(history.previewRemoval({ scope: 'device', eventId: null }));
+    const request = { scope: 'device' as const, eventId: null, operationId: runtime.newId(), expectedVersion: preview.version, reason: 'Reset' };
+    connection.sqlite.exec("CREATE TEMP TRIGGER fail_bulk BEFORE DELETE ON financial_sales WHEN OLD.id='" + second.id + "' BEGIN SELECT RAISE(ABORT, 'Injected failure'); END");
+    expect(history.removeHistory(request).ok).toBe(false);
+    expect(value(payments.getSaleDetails({ saleId: first.id })).sale).toEqual(first);
+    expect(value(payments.getSaleDetails({ saleId: second.id })).sale).toEqual(second);
+    expect(connection.sqlite.prepare('SELECT * FROM history_purge_operations').all()).toEqual([]);
+    expect(connection.sqlite.prepare('SELECT * FROM sale_purge_records').all()).toEqual([]);
+    connection.sqlite.exec('DROP TRIGGER fail_bulk');
+    const pending = value(payments.prepareRefund({ saleId: second.id, idempotencyKey: runtime.newId(), method: 'card', items: [{ saleItemId: second.items[0]!.id, quantity: 1 }] }));
+    expect(history.removeHistory(request)).toMatchObject({ ok: false, error: { code: 'REFUND_PENDING' } });
+    expect(search().total).toBe(2);
+    value(payments.confirmRefund({ attemptId: pending.id, operatorConfirmed: true }));
+    value(history.removeHistory(request));
+    expect(history.removeHistory({ ...request, reason: 'Different request' })).toMatchObject({ ok: false, error: { code: 'CONFLICT' } });
+    expect(search().total).toBe(0);
+  });
 
   it('returns bounded empty results and five predictable header-only exports', () => {
     expect(search()).toMatchObject({ items: [], total: 0, page: 1, pageSize: 25 });

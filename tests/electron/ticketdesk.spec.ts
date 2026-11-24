@@ -1,0 +1,44 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { _electron as electron, expect, test } from '@playwright/test';
+import { navigateTo } from './navigation-helpers.js';
+test('ticketdesk is a separate limited window, checks and redeems live tickets and closes on mode switch', async () => {
+ test.setTimeout(120_000);
+ const directory=await mkdtemp(join(tmpdir(),'sloth-ticketdesk-'));
+ const environment={...process.env};delete environment.ELECTRON_RUN_AS_NODE;
+ const app=await electron.launch({args:[resolve('apps/desktop')],env:{...environment,CASH_SLOTH_CHANNEL:'development',CASH_SLOTH_DATA_ROOT:directory}});
+ try {
+  const page=await app.firstWindow(); await expect(page.locator('.pos-shell')).toBeVisible();
+  expect(await page.evaluate(async()=>{const result=await window.cashSloth!.catalog.getProduct({productId:'product-chocolate'});if(!result.ok)return result;const p=result.value;return window.cashSloth!.catalog.updateProduct({productId:p.id,expectedRevision:p.revision,name:p.name,description:p.description,active:p.active,imageReference:p.imageReference,ticketUses:1});})).toMatchObject({ok:true});
+  await page.reload();
+  await page.getByRole('button',{name:'Add Chocolate',exact:true}).click();
+  await page.getByRole('button',{name:'Checkout',exact:true}).click();await page.getByRole('button',{name:'Cash',exact:true}).click();await page.getByRole('button',{name:'Add cash CHF 10.00',exact:true}).click();await page.getByRole('button',{name:'Complete transaction',exact:true}).click();
+  const code=await page.locator('.ticket-paper code').innerText();
+  await expect(page.locator('.ticket-paper')).not.toContainText('Ticket status');await expect(page.locator('.ticket-paper')).not.toContainText('Remaining uses');
+  await expect(page.locator('.ticket-paper')).toContainText('Allowed redemptions: 1');
+  await page.getByRole('button',{name:'Do not print',exact:true}).click();await navigateTo(page,'Settings');
+  let opened=app.waitForEvent('window');await page.getByRole('button',{name:'Open ticketdesk',exact:true}).click();let desk=await opened;
+  await expect(desk.getByRole('heading',{name:'Ticketdesk',exact:true})).toBeVisible();
+  expect(await desk.evaluate(()=>({methods:Object.keys(window.cashSlothTicketdesk??{}),cashier:typeof window.cashSloth,customer:typeof window.cashSlothCustomer,node:typeof (window as unknown as {require?:unknown}).require}))).toEqual({methods:['getState','lookup','redeem'],cashier:'undefined',customer:'undefined',node:'undefined'});
+  await expect(desk.locator('.application-navigation')).toHaveCount(0);
+  await page.getByRole('button',{name:'Open ticketdesk',exact:true}).click();expect(app.windows()).toHaveLength(2);
+  expect(await app.evaluate(({BrowserWindow})=>{const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('ticketdesk=1'))!;w.setBounds({x:100,y:100,width:1100,height:800});return w.isMovable();})).toBe(true);
+  await desk.getByLabel('Ticket code',{exact:true}).fill(code);await desk.getByLabel('Ticket code',{exact:true}).press('Enter');
+  await expect(desk.locator('.ticket-status')).toContainText('Valid ticket');
+  expect(await page.evaluate(code=>window.cashSloth!.tickets!.lookup({code}),code)).toMatchObject({ok:true,value:{remainingUses:1,redemptions:[]}});
+  await navigateTo(page,'POS');await page.getByRole('button',{name:'Add Coffee',exact:true}).click();
+  await desk.getByRole('button',{name:'Redeem once',exact:true}).click();await expect(desk.locator('.ticket-status')).toContainText('Fully redeemed');
+  expect(await page.evaluate(code=>window.cashSloth!.tickets!.lookup({code}),code)).toMatchObject({ok:true,value:{remainingUses:0,status:'used'}});
+  await desk.screenshot({path:'test-results/ticketdesk-window.png',fullPage:true});
+  await desk.close();await navigateTo(page,'Redeem tickets');opened=app.waitForEvent('window');await page.getByRole('button',{name:'Open ticketdesk',exact:true}).click();desk=await opened;
+  await desk.getByLabel('Ticket code',{exact:true}).fill(code);await desk.getByRole('button',{name:'Check ticket',exact:true}).click();await expect(desk.locator('.ticket-inspection ol li')).toHaveCount(1);
+  await page.evaluate(async()=>{const cart=await window.cashSloth!.pos.getCart({});if(cart.ok)await window.cashSloth!.pos.clearCart({cartId:cart.value.cart.id,expectedRevision:cart.value.cart.revision});});
+  await navigateTo(page,'Settings');await page.getByRole('button',{name:'Activate demo mode',exact:true}).click();await expect(page.locator('.demo-banner')).toBeVisible();await expect.poll(()=>app.windows().length).toBe(1);
+  await navigateTo(page,'Settings');opened=app.waitForEvent('window');await page.getByRole('button',{name:'Open ticketdesk',exact:true}).click();desk=await opened;await expect(desk.locator('.demo-banner')).toBeVisible();
+  await desk.getByLabel('Ticket code',{exact:true}).fill(code);await desk.getByRole('button',{name:'Check ticket',exact:true}).click();
+  await expect(desk.getByRole('alert')).toHaveText('Normal tickets can only be redeemed in normal mode.');
+  expect(await desk.evaluate(code=>window.cashSlothTicketdesk!.redeem({code,expectedUses:0,operationId:window.crypto.randomUUID(),operatorConfirmed:true}),code)).toMatchObject({ok:false,error:{code:'TICKET_MODE_MISMATCH'}});
+  await page.getByRole('button',{name:'End demo mode',exact:true}).click();await expect(page.locator('.demo-banner')).toHaveCount(0);await expect.poll(()=>app.windows().length).toBe(1);
+ } finally {await app.close();await rm(directory,{recursive:true,force:true,maxRetries:5});}
+});

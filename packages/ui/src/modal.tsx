@@ -1,3 +1,4 @@
+import { t } from './preferences.js';
 import React, { useEffect, useRef } from 'react';
 
 export function Modal({ title, onClose, children, className = '', closeDisabled = false }: {
@@ -36,7 +37,7 @@ export function Modal({ title, onClose, children, className = '', closeDisabled 
       if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }}>
-      <div className="modal-heading"><h2>{title}</h2><button type="button" className="subtle-button" aria-label={`Close ${title}`} disabled={closeDisabled} onClick={onClose}>Close</button></div>
+      <div className="modal-heading"><h2>{title}</h2><button type="button" className="subtle-button" aria-label={`Close ${title}`} disabled={closeDisabled} onClick={onClose}>{t("Close")}</button></div>
       {children}
     </section>
   </div>;

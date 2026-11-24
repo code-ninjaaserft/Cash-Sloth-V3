@@ -7,9 +7,12 @@ const product = { name: 'Test product', description: null, imageReference: null,
 const variant = { name: 'Default', unitPriceRappen: 100, sku: null, barcode: null, active: true, position: 0 };
 const category = { name: 'Test category', parentId: null, active: true, position: 0 };
 const requests: Record<CatalogMethod, unknown> = {
+  removeVariant: { productId: 'product-security', variantId: 'variant-security', expectedProductRevision: 0, expectedRevision: 0 },
+  removeProduct: { productId: 'product-security', expectedRevision: 0 },
+  removeCategory: { categoryId: 'category-security', expectedRevision: 0 },
   listProducts: { query: '', categoryId: null, restrictToCategory: false, includeInactive: false },
   getProduct: { productId: 'product-security' },
-  createProduct: { ...product, firstVariant: variant, categoryIds: [], primaryCategoryId: null },
+  createProduct: { ...product, firstVariant: variant, categoryIds: ['category-security'], primaryCategoryId: null },
   updateProduct: { ...product, productId: 'product-security', expectedRevision: 0 },
   createVariant: { ...variant, productId: 'product-security', expectedProductRevision: 0 },
   updateVariant: { ...variant, productId: 'product-security', variantId: 'variant-security', expectedProductRevision: 0, expectedRevision: 0 },

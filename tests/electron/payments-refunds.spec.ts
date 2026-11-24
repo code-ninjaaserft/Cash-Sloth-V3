@@ -50,6 +50,7 @@ test('Card and TWINT sales use explicit confirmations and support a full cash re
     for (const method of ['Card', 'TWINT'] as const) {
       await page.getByRole('button', { name: 'Add Coffee', exact: true }).click();
       await page.getByRole('button', { name: 'Checkout', exact: true }).click();
+    await page.getByRole('button', { name: 'More payment options', exact: true }).click();
       await confirmDigital(page, method, '4.50');
       await page.getByRole('button', { name: 'Complete sale', exact: true }).click();
       const receipt = page.getByRole('region', { name: 'Sale receipt', exact: true });
@@ -77,11 +78,16 @@ test('mixed allocations and successive partial refunds preserve the exact paid t
   try {
     application = await launch();
     let page = await application.firstWindow();
-    const created = await page.evaluate(async () => window.cashSloth?.catalog.createProduct({
+    const created = await page.evaluate(async () => {
+      const api = window.cashSloth!;
+      const category = await api.catalog.createCategory({ name: 'Settlement samples', parentId: null, active: true, position: 0 });
+      if (!category.ok) throw new Error(category.error.message);
+      return api.catalog.createProduct({
       name: 'Settlement sample', description: null, active: true, imageReference: null,
-      categoryIds: [], primaryCategoryId: null,
+      categoryIds: [category.value.id], primaryCategoryId: category.value.id,
       firstVariant: { name: 'Default', unitPriceRappen: 842, active: true, sku: null, barcode: null, position: 0 },
-    }));
+      });
+    });
     if (!created?.ok) throw new Error('Could not create isolated financial fixture');
     // Reopen the browser so its catalog query includes the committed fixture.
     await navigateTo(page, 'Catalog');
@@ -92,6 +98,7 @@ test('mixed allocations and successive partial refunds preserve the exact paid t
     await expect(page.getByTestId('cart-subtotal')).toHaveText('CHF 16.84');
     await expect(page.getByTestId('cart-payable')).toHaveText('CHF 16.84');
     await page.getByRole('button', { name: 'Checkout', exact: true }).click();
+    await page.getByRole('button', { name: 'More payment options', exact: true }).click();
     await confirmDigital(page, 'TWINT', '5.00');
     await confirmDigital(page, 'Card', '5.00');
     await expect(page.getByTestId('outstanding-balance')).toHaveText('CHF 6.84');
@@ -145,6 +152,7 @@ test('uncertain checkout survives restart and requires investigated reconciliati
     let page = await application.firstWindow();
     await page.getByRole('button', { name: 'Add Coffee', exact: true }).click();
     await page.getByRole('button', { name: 'Checkout', exact: true }).click();
+    await page.getByRole('button', { name: 'More payment options', exact: true }).click();
     await page.getByRole('button', { name: 'Card', exact: true }).click();
     await page.getByRole('textbox', { name: 'Payment amount (CHF)', exact: true }).fill('1.00');
     await page.getByRole('button', { name: 'Review payment', exact: true }).click();

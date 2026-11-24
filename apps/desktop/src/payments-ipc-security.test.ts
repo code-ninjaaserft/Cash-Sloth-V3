@@ -4,6 +4,8 @@ import { handleValidatedIpc, type RuntimeParser, type SenderIdentity } from './i
 
 const trusted: SenderIdentity = { webContentsId: 1, frameProcessId: 2, frameRoutingId: 3, url: 'file:///pos/index.html' };
 const requests: Record<PaymentsMethod, unknown> = {
+  completeTeam: {sessionId:'session'}, listTeam: {},
+  setTip: { sessionId: 'session', expectedTipRappen: 0, tipRappen: 100 },
   startCheckout: { cartId: 'cart-security', expectedRevision: 0 },
   getCheckout: { sessionId: 'checkout-security' }, getActiveCheckout: {},
   cancelCheckout: { sessionId: 'checkout-security' },

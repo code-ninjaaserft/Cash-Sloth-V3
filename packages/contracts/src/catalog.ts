@@ -8,18 +8,21 @@ const metadata = z.string().min(1).max(100).nullable();
 const imageReference = z.string().min(1).max(500).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u).refine((value) => !value.split('/').includes('..')).nullable();
 const position = z.number().int().min(0).max(1_000_000);
 const variantFields = { name, unitPriceRappen: RappenSchema, sku: metadata, barcode: metadata, active: z.boolean(), position };
-const productFields = { name, description: text, active: z.boolean(), imageReference };
+const productFields = { ticketUses: z.union([z.number().int().min(0).max(1000),z.literal(2147483647)]).optional(), name, description: text, active: z.boolean(), imageReference };
 const assignments = { categoryIds: z.array(IdentifierSchema).readonly(), primaryCategoryId: IdentifierSchema.nullable() };
-const categoryFields = { name, parentId: IdentifierSchema.nullable(), active: z.boolean(), position };
+const categoryFields = { color: z.string().regex(/^#[0-9a-f]{6}$/iu).nullable().optional(), name, parentId: IdentifierSchema.nullable(), active: z.boolean(), position };
 export const ManagedVariantSchema = z.strictObject({ id: IdentifierSchema, productId: IdentifierSchema, ...variantFields, name: storedName, revision: RevisionSchema });
 export const ManagedProductSchema = z.strictObject({ id: IdentifierSchema, ...productFields, name: storedName, createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(), revision: RevisionSchema, ...assignments, variants: z.array(ManagedVariantSchema).min(1).readonly() });
 export const CategorySchema = z.strictObject({ id: IdentifierSchema, ...categoryFields, revision: RevisionSchema });
 export const CategorySummarySchema = CategorySchema.extend({ productCount: z.number().int().min(0), browseable: z.boolean() });
 function result<T extends z.ZodType>(value: T) { return z.discriminatedUnion('ok', [z.strictObject({ ok: z.literal(true), value }), z.strictObject({ ok: z.literal(false), error: PosErrorSchema })]); }
 export const CATALOG_IPC_CONTRACTS = {
+  removeVariant: { channel: 'catalog:removeVariant', request: z.strictObject({ productId: IdentifierSchema, variantId: IdentifierSchema, expectedProductRevision: RevisionSchema, expectedRevision: RevisionSchema }), response: result(ManagedProductSchema) },
+  removeProduct: { channel: 'catalog:removeProduct', request: z.strictObject({ productId: IdentifierSchema, expectedRevision: RevisionSchema }), response: result(z.strictObject({ deleted: z.literal(true) })) },
+  removeCategory: { channel: 'catalog:removeCategory', request: z.strictObject({ categoryId: IdentifierSchema, expectedRevision: RevisionSchema }), response: result(z.strictObject({ deleted: z.literal(true) })) },
   listProducts: { channel: 'catalog:listProducts', request: z.strictObject({ query: z.string().max(200), categoryId: IdentifierSchema.nullable(), restrictToCategory: z.boolean(), includeInactive: z.boolean() }), response: result(z.array(ManagedProductSchema).readonly()) },
   getProduct: { channel: 'catalog:getProduct', request: z.strictObject({ productId: IdentifierSchema }), response: result(ManagedProductSchema) },
-  createProduct: { channel: 'catalog:createProduct', request: z.strictObject({ ...productFields, ...assignments, firstVariant: z.strictObject(variantFields) }), response: result(ManagedProductSchema) },
+  createProduct: { channel: 'catalog:createProduct', request: z.strictObject({ ...productFields, ...assignments, categoryIds: z.array(IdentifierSchema).min(1).readonly(), firstVariant: z.strictObject(variantFields), additionalVariants: z.array(z.strictObject(variantFields)).max(99).optional() }), response: result(ManagedProductSchema) },
   updateProduct: { channel: 'catalog:updateProduct', request: z.strictObject({ productId: IdentifierSchema, expectedRevision: RevisionSchema, ...productFields }), response: result(ManagedProductSchema) },
   createVariant: { channel: 'catalog:createVariant', request: z.strictObject({ productId: IdentifierSchema, expectedProductRevision: RevisionSchema, ...variantFields }), response: result(ManagedProductSchema) },
   updateVariant: { channel: 'catalog:updateVariant', request: z.strictObject({ productId: IdentifierSchema, variantId: IdentifierSchema, expectedProductRevision: RevisionSchema, expectedRevision: RevisionSchema, ...variantFields }), response: result(ManagedProductSchema) },

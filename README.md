@@ -97,7 +97,7 @@ then historical refunds of CHF 8.42 and CHF 8.43. No provider API was contacted.
 
 Real Card/TWINT integrations, analytics and
 customer-display pairing are **not implemented**. `apps/customer-display` reserves
-a future boundary; the UI is English only. No receipt printer integration is included.
+a future boundary; the UI offers English and German under Settings, with Light, Dark and System appearance modes. No receipt printer integration is included.
 
 Card/TWINT confirmations are operator assertions, not provider verification.
 Cash is the last method in a mixed checkout. Partial cash refunds must be payable

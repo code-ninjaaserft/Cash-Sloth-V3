@@ -1,0 +1,5 @@
+import type {DiscountTemplate,Voucher} from '@cash-sloth/contracts';
+import type {TicketMode} from '@cash-sloth/domain';
+import type {PosStore,PosRuntime} from './ports.js';import type {FinanceStore} from './finance-ports.js';
+export interface PromotionStore {pos:PosStore;finance:FinanceStore;mode:TicketMode;templates():readonly DiscountTemplate[];putTemplate(value:DiscountTemplate):void;removeTemplate(id:string):void;vouchers():readonly Voucher[];getVoucher(code:string):Voucher|null;putVoucher(value:Voucher):void;uses(code:string):number;balance(code:string):number;reserved(code:string):boolean;bind(cartId:string,code:string,at:string):void;unbind(cartId:string):void;ledger(id:string):{code:string;sessionId:string;amountRappen:number;kind:string}|null;post(entry:{id:string;code:string;sessionId:string;amountRappen:number;kind:'pay'|'cancel'|'refund';at:string}):void;getOperation(id:string):{request:string;result:string}|null;putOperation(id:string,request:string,result:string):void;walletForSession(id:string):string|null;}
+export interface PromotionRuntime extends PosRuntime {newVoucherCode(mode:TicketMode):string}

@@ -26,7 +26,7 @@ export function createPaymentsService(store: FinanceStore, runtime: PosRuntime):
   const sessionById = (id: string): CheckoutSession => { const session = requireValue(store.getSession(id), 'Checkout session'); validateCheckoutSession(session); return session; };
   const view = (id: string): CheckoutView => {
     const session = sessionById(id); const attempts = store.listPaymentAttempts(id);
-    return { session, attempts, balance: checkoutBalance(session.cart.subtotalRappen, attempts), sale: store.getSaleBySession(id) };
+    return { session, attempts, balance: checkoutBalance(session.cart.subtotalRappen, attempts, session.tipRappen ?? 0), sale: store.getSaleBySession(id) };
   };
   const requireOpen = (id: string): CheckoutSession => {
     const session = sessionById(id);
@@ -42,7 +42,7 @@ export function createPaymentsService(store: FinanceStore, runtime: PosRuntime):
     const sale = requireValue(store.getFinancialSale(saleId), 'Sale'); validateFinancialSale(sale);
     const refunds = store.listRefunds(saleId); validateRefundHistory(sale, refunds);
     const refundedRappen = refunds.reduce((sum, refund) => addMoney(sum, refund.amountRappen), 0);
-    return { sale, refunds, refundAttempts: store.listRefundAttempts(saleId), refundedRappen, refundableRappen: sale.actualPaidRappen - refundedRappen,
+    return { sale, refunds, refundAttempts: store.listRefundAttempts(saleId), refundedRappen, refundableRappen: sale.actualPaidRappen - (sale.tipRappen ?? 0) - refundedRappen,
       items: sale.items.map((item) => { const quantityRefunded = refunds.reduce((sum, refund) => sum + (refund.items.find((line) => line.saleItemId === item.id)?.quantity ?? 0), 0);
         return { saleItemId: item.id, quantitySold: item.quantity, quantityRefunded, quantityRemaining: item.quantity - quantityRefunded }; }) };
   };
@@ -53,7 +53,7 @@ export function createPaymentsService(store: FinanceStore, runtime: PosRuntime):
     const session = requireOpen(attempt.sessionId); assertNoLegacyConflict();
     const attempts = store.listPaymentAttempts(session.id);
     if (attempts.some((other) => other.id !== attempt.id && ['prepared', 'reported', 'uncertain'].includes(other.status))) throw new DomainError('RECONCILIATION_REQUIRED', 'Another pending payment must be resolved before allocation.');
-    const quote = quotePayment(session.cart.subtotalRappen, attempts.filter((other) => other.id !== attempt.id), attempt.method, attempt.intendedRappen);
+    const quote = quotePayment(session.cart.subtotalRappen, attempts.filter((other) => other.id !== attempt.id), attempt.method, attempt.intendedRappen, session.tipRappen ?? 0);
     if (quote.appliedRappen !== attempt.appliedRappen || quote.cashTenderedRappen !== attempt.cashTenderedRappen || quote.changeRappen !== attempt.changeRappen || quote.roundingAdjustmentRappen !== attempt.roundingAdjustmentRappen) throw new DomainError('CONFLICT', 'Recorded payment no longer matches the outstanding balance.');
     const now = runtime.now();
     store.putPaymentAttempt({ ...attempt, status: 'confirmed', reportedAt: attempt.reportedAt ?? now, confirmedAt: now }); event('payment', attempt.id, 'confirmed');
@@ -88,6 +88,24 @@ export function createPaymentsService(store: FinanceStore, runtime: PosRuntime):
     return [...paymentCases, ...refundCases, ...legacyCases];
   };
   return {
+ listTeam: request=>safe('listTeam',request,()=>store.transaction(()=>store.listTeamBookings?.()??[])),
+ completeTeam: request=>safe('completeTeam',request,()=>store.transaction(()=>{
+ if(store.hasTeamBooking?.(request.sessionId))return view(request.sessionId);
+ const session=requireOpen(request.sessionId);assertNoLegacyConflict();
+ if(session.cart.items.some(item=>item.originalUnitPriceRappen!==undefined))throw new DomainError('CONFLICT','Remove discounts before complimentary consumption.');
+ if(store.listPaymentAttempts(session.id).length || (session.tipRappen??0)!==0)throw new DomainError('CONFLICT','Team consumption cannot contain payments or tips.');
+ if(!store.recordTeamBooking)throw new DomainError('CONFLICT','Team consumption is unavailable.');
+ store.recordTeamBooking(session,runtime.now());store.pos.consumeCart(session.cart.id,session.cart.revision);store.putSession({...session,status:'cancelled'});return view(session.id);
+ })),
+    setTip: (request) => safe('setTip', request, () => store.transaction(() => {
+      const session = requireOpen(request.sessionId);
+      if ((session.tipRappen ?? 0) === request.tipRappen) return view(session.id);
+      if ((session.tipRappen ?? 0) !== request.expectedTipRappen) throw new DomainError('CONFLICT', 'The tip changed. Refresh checkout before continuing.');
+      if (store.listPaymentAttempts(session.id).some((attempt) => !['failed', 'excluded'].includes(attempt.status))) throw new DomainError('PAYMENT_PENDING', 'Choose the tip before preparing a payment.');
+      addMoney(session.cart.subtotalRappen, request.tipRappen);
+      store.putSession({ ...session, tipRappen: request.tipRappen }); event('session', session.id, 'tip-updated');
+      return view(session.id);
+    })),
     startCheckout: (request) => safe('startCheckout', request, () => store.transaction(() => {
       const existing = store.getOpenSession();
       if (existing !== null) {
@@ -109,6 +127,7 @@ export function createPaymentsService(store: FinanceStore, runtime: PosRuntime):
       store.putSession({ ...session, status: 'cancelled' }); event('session', session.id, 'cancelled'); return view(session.id);
     })),
     preparePayment: (request) => safe('preparePayment', request, () => store.transaction(() => {
+      if(request.method==='voucher')throw new DomainError('INVALID_INPUT','Use the value-voucher payment function.');
       const replay = store.getPaymentAttemptByKey(request.idempotencyKey);
       if (replay !== null) {
         if (replay.sessionId !== request.sessionId || replay.method !== request.method || replay.intendedRappen !== request.intendedRappen) throw new DomainError('CONFLICT', 'Payment key is already bound to different input.');
@@ -117,7 +136,7 @@ export function createPaymentsService(store: FinanceStore, runtime: PosRuntime):
       const session = requireOpen(request.sessionId); assertNoLegacyConflict(); const attempts = store.listPaymentAttempts(session.id);
       if (attempts.length >= 1000) throw new DomainError('LIMIT_REACHED', 'Too many payment attempts. Resolve this checkout before continuing.');
       if (attempts.some((attempt) => ['prepared', 'reported', 'uncertain'].includes(attempt.status))) throw new DomainError('PAYMENT_PENDING', 'Resolve the existing prepared or uncertain attempt before preparing another transfer.');
-      const quote = quotePayment(session.cart.subtotalRappen, attempts, request.method, request.intendedRappen);
+      const quote = quotePayment(session.cart.subtotalRappen, attempts, request.method, request.intendedRappen, session.tipRappen ?? 0);
       const attempt: PaymentAttempt = { id: runtime.newId(), idempotencyKey: request.idempotencyKey, sessionId: session.id, method: request.method, intendedRappen: request.intendedRappen, ...quote, status: 'prepared', createdAt: runtime.now(), reportedAt: null, confirmedAt: null, note: null };
       validatePaymentAttempt(attempt); store.putPaymentAttempt(attempt); event('payment', attempt.id, 'prepared'); return attempt;
     })),
@@ -139,10 +158,10 @@ export function createPaymentsService(store: FinanceStore, runtime: PosRuntime):
       const existing = store.getSaleBySession(request.sessionId); if (existing !== null) return existing;
       const session = requireOpen(request.sessionId); assertNoLegacyConflict(); const attempts = store.listPaymentAttempts(session.id);
       if (attempts.some((attempt) => ['prepared', 'reported', 'uncertain'].includes(attempt.status))) throw new DomainError('PAYMENT_PENDING', 'Resolve every pending attempt before completing this sale.');
-      const balance = checkoutBalance(session.cart.subtotalRappen, attempts);
+      const balance = checkoutBalance(session.cart.subtotalRappen, attempts, session.tipRappen ?? 0);
       const confirmed = attempts.filter((attempt) => attempt.status === 'confirmed');
       if (!balance.settled || confirmed.length === 0) throw new DomainError('OUTSTANDING_BALANCE', 'The sale requires confirmed allocations covering its final payable amount.');
-      const sale: FinancialSale = { id: runtime.newId(), checkoutSessionId: session.id, cartId: session.cart.id, cartRevision: session.cart.revision, completedAt: runtime.now(), items: session.cart.items,
+      const sale: FinancialSale = { tipRappen: session.tipRappen ?? 0, eventId: store.getEventId?.() ?? null, eventTitle: store.getEventTitle?.() ?? null, id: runtime.newId(), checkoutSessionId: session.id, cartId: session.cart.id, cartRevision: session.cart.revision, completedAt: runtime.now(), items: session.cart.items,
         subtotalRappen: session.cart.subtotalRappen, roundingAdjustmentRappen: balance.roundingAdjustmentRappen, amountDueRappen: balance.finalPayableRappen, actualPaidRappen: balance.confirmedAppliedRappen, payments: confirmed.map(paymentAllocation), source: 'payments' };
       validateFinancialSale(sale); store.insertFinancialSale(sale); store.pos.consumeCart(session.cart.id, session.cart.revision); store.putSession({ ...session, status: 'completed', saleId: sale.id }); event('session', session.id, 'completed'); return sale;
     })),
@@ -155,6 +174,7 @@ export function createPaymentsService(store: FinanceStore, runtime: PosRuntime):
         return replay;
       }
       const details = saleDetails(request.saleId);
+      const fundedByVoucher=details.sale.payments.some(p=>p.method==='voucher');if(fundedByVoucher!== (request.method==='voucher'))throw new DomainError('INVALID_INPUT',fundedByVoucher?'Refund this sale to its original voucher credit.':'This sale has no value-voucher payment.');
       if (details.refundAttempts.some((attempt) => ['prepared', 'reported', 'uncertain'].includes(attempt.status))) throw new DomainError('REFUND_PENDING', 'An existing refund reserves quantities for this sale. Review that attempt first.');
       const items = quoteRefundItems(details.sale, details.refunds, request.items); const amountRappen = items.reduce((sum, item) => addMoney(sum, item.amountRappen), 0);
       if (amountRappen > details.refundableRappen) throw new DomainError('REFUND_LIMIT', 'Refund exceeds the original actual payment.');
@@ -181,6 +201,7 @@ export function createPaymentsService(store: FinanceStore, runtime: PosRuntime):
     listReconciliationCases: (request) => safe('listReconciliationCases', request, () => store.transaction(cases)),
     listReconciliationHistory: (request) => safe('listReconciliationHistory', request, () => store.transaction(() => store.listReconciliationHistory())),
     reconcile: (request) => safe('reconcile', request, () => store.transaction(() => {
+      if(request.kind==='payment'&&store.getPaymentAttempt(request.referenceId)?.method==='voucher')throw new DomainError('INVALID_INPUT','Use the voucher reversal function to return local credit.');
       const replay = store.getReconciliationActionByKey(request.idempotencyKey);
       if (replay !== null) {
         if (replay.kind !== request.kind || replay.referenceId !== request.referenceId || replay.resolution !== request.resolution || replay.reason !== request.reason.trim()) throw new DomainError('CONFLICT', 'Reconciliation key is already bound to another decision.');

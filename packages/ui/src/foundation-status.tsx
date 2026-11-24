@@ -1,3 +1,4 @@
+import { t } from './preferences.js';
 import React, { useCallback, useEffect, useState } from 'react';
 import type { CashSlothApi, SystemInfo } from '@cash-sloth/contracts';
 import { foundationMessages as messages } from '@cash-sloth/i18n';
@@ -33,30 +34,30 @@ export function FoundationStatus({ api, logo, showBranding = true }: {
       <span>Cash Sloth V3</span>
     </header>}
     <main>
-      <p className="eyebrow">{messages.milestone}</p>
-      <h1>{messages.title}</h1>
-      <p className="intro">{messages.introduction}</p>
+      <p className="eyebrow">{t(messages.milestone)}</p>
+      <h1>{t(messages.title)}</h1>
+      <p className="intro">{t(messages.introduction)}</p>
       <section className="status-card" aria-labelledby="runtime-heading">
-        <h2 id="runtime-heading">{messages.statusTitle}</h2>
-        {api === undefined && <p role="alert">{messages.unavailable}</p>}
-        {failed && <p role="alert">{messages.failed}</p>}
-        <p role="status">{busy ? messages.checking : info === null ? '' : messages.connected}</p>
+        <h2 id="runtime-heading">{t(messages.statusTitle)}</h2>
+        {api === undefined && <p role="alert">{t(messages.unavailable)}</p>}
+        {failed && <p role="alert">{t(messages.failed)}</p>}
+        <p role="status">{busy ? t(messages.checking) : info === null ? '' : t(messages.connected)}</p>
         {info !== null && (
           <dl data-testid="system-info">
-            <dt>Host</dt><dd>{info.host}</dd>
-            <dt>Channel</dt><dd>{info.channel}</dd>
-            <dt>Application</dt><dd>{info.appVersion}</dd>
+            <dt>{t("Host")}</dt><dd>{info.host}</dd>
+            <dt>{t("Channel")}</dt><dd>{info.channel}</dd>
+            <dt>{t("Application")}</dt><dd>{info.appVersion}</dd>
             <dt>Node.js</dt><dd>{info.versions.node}</dd>
             <dt>Electron</dt><dd>{info.versions.electron ?? '—'}</dd>
             <dt>SQLite</dt><dd>{info.sqliteVersion}</dd>
-            <dt>Platform</dt><dd>{info.platform} / {info.arch}</dd>
+            <dt>{t("Platform")}</dt><dd>{info.platform} / {info.arch}</dd>
           </dl>
         )}
         <button type="button" disabled={busy || api === undefined} onClick={() => { void refresh(); }}>
-          {messages.refresh}
+          {t(messages.refresh)}
         </button>
       </section>
-      <p className="notice">{messages.scope}</p>
+      <p className="notice">{t(messages.scope)}</p>
     </main>
     </>
   );

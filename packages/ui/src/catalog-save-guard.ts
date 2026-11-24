@@ -1,7 +1,7 @@
 import { CatalogRequestError } from './catalog-ui.js';
 import { CATALOG_IPC_CONTRACTS, type CatalogApi, type CatalogRequest, type CatalogResponse } from '@cash-sloth/contracts';
 
-type CatalogMutation = 'createProduct' | 'updateProduct' | 'createVariant' | 'updateVariant' | 'assignCategories' | 'createCategory' | 'updateCategory';
+type CatalogMutation = 'removeVariant' | 'removeProduct' | 'removeCategory' | 'createProduct' | 'updateProduct' | 'createVariant' | 'updateVariant' | 'assignCategories' | 'createCategory' | 'updateCategory';
 
 /** A definitely invalid local envelope is correctable, not an uncertain write. */
 export function submitCatalogMutation<K extends CatalogMutation>(api: Pick<CatalogApi, K>, method: K, request: CatalogRequest<K>): Promise<CatalogResponse<K>> {

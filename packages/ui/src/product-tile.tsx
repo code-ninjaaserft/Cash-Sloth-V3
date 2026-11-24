@@ -1,5 +1,7 @@
+import { variantLabel } from './catalog-ui.js';
+import { t } from './preferences.js';
 import React, { useId } from 'react';
-import type { ManagedProduct } from '@cash-sloth/contracts';
+import type { CategorySummary, ManagedProduct } from '@cash-sloth/contracts';
 import { formatChf } from '@cash-sloth/domain';
 import type { CartQuantities } from './cart-quantities.js';
 
@@ -15,8 +17,9 @@ function QuantityBadge({ quantity, description, id }: {
   </>;
 }
 
-export function ProductTile({ product, quantities, disabled, onChoose, onAdd }: {
+export function ProductTile({ product, category = null, quantities, disabled, onChoose, onAdd }: {
   product: ManagedProduct;
+  category?: CategorySummary | null;
   quantities: CartQuantities;
   disabled: boolean;
   onChoose: (product: ManagedProduct) => void;
@@ -32,11 +35,11 @@ export function ProductTile({ product, quantities, disabled, onChoose, onAdd }: 
     ? variants.filter((variant) => quantities.byVariant.has(variant.id))
     : [];
 
-  return <div className="product-tile-group">
+  return <div className="product-tile-group" data-category-color={category?.color || undefined} style={category?.color ? { '--category-color': category.color } as React.CSSProperties : undefined}>
     <button
       type="button"
       className="product-card"
-      aria-label={`${onlyVariant ? 'Add' : 'Choose'} ${product.name}`}
+      aria-label={`${onlyVariant ? t("Add") : t("Choose")} ${product.name}`}
       aria-describedby={productQuantity > 0 ? descriptionId : undefined}
       aria-disabled={unavailable}
       onClick={() => {
@@ -49,12 +52,13 @@ export function ProductTile({ product, quantities, disabled, onChoose, onAdd }: 
         <span className="product-symbol" aria-hidden="true">+</span>
         <QuantityBadge id={descriptionId} quantity={productQuantity} description="in cart across all variants" />
       </span>
-      <strong>{product.name}</strong>
-      <small>{onlyVariant?.name ?? `${variants.length} variants`}</small>
-      <span className="product-price">{variants.length > 1 ? 'from ' : ''}{Number.isFinite(unitPrice) ? formatChf(unitPrice) : 'Unavailable'}</span>
+      <strong>{product.name}{onlyVariant && onlyVariant.name !== 'Default' ? ` — ${onlyVariant.name}` : ''}</strong>
+      {category && <span className="product-category-label">{category.name}</span>}
+      {(!onlyVariant || onlyVariant.name === 'Default') && <small>{onlyVariant ? variantLabel(onlyVariant.name) : `${variants.length} ${t('variants')}`}</small>}
+      <span className="product-price">{variants.length > 1 ? t('from') + ' ' : ''}{Number.isFinite(unitPrice) ? formatChf(unitPrice) : t("Unavailable")}</span>
     </button>
     {quickVariants.length > 0 && <div className="quick-variants" role="group" aria-label={`Quick add variants of ${product.name}`}>
-      <span className="quick-variants-label" aria-hidden="true">Quick add</span>
+      <span className="quick-variants-label" aria-hidden="true">{t("Quick add")}</span>
       <div className="quick-variant-list">
         {quickVariants.map((variant) => {
           const label = `${product.name} — ${variant.name}`;
@@ -68,7 +72,7 @@ export function ProductTile({ product, quantities, disabled, onChoose, onAdd }: 
             aria-disabled={unavailable}
             onClick={() => { if (!unavailable) onAdd(variant.id, label); }}
           >
-            <span className="quick-variant-details"><strong>{variant.name}</strong><small>{formatChf(variant.unitPriceRappen)}</small></span>
+            <span className="quick-variant-details"><strong>{variantLabel(variant.name)}</strong><small>{formatChf(variant.unitPriceRappen)}</small></span>
             <QuantityBadge id={id} quantity={quantities.byVariant.get(variant.id) ?? 0} description="in cart for this variant" />
           </button>;
         })}

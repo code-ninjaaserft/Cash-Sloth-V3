@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { PAYMENTS_IPC_CONTRACTS, FinancialSaleSchema, PaymentAttemptSchema, RefundAttemptSchema } from './payments.js';
 
 const validRequests = {
+  completeTeam: {sessionId:'session'}, listTeam: {},
+  setTip: { sessionId: 'session', expectedTipRappen: 0, tipRappen: 100 },
   startCheckout: { cartId: 'cart', expectedRevision: 1 }, getCheckout: { sessionId: 'session' }, getActiveCheckout: {}, cancelCheckout: { sessionId: 'session' },
   preparePayment: { sessionId: 'session', idempotencyKey: 'stable-key', method: 'card', intendedRappen: 842 }, confirmPayment: { attemptId: 'attempt', operatorConfirmed: true },
   reportPaymentOutcome: { attemptId: 'attempt', outcome: 'uncertain', reason: 'Provider outcome unknown', operatorConfirmed: true }, completeCheckout: { sessionId: 'session' },

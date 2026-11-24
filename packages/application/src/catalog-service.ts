@@ -60,8 +60,9 @@ export function createCatalogService(store: CatalogStore, runtime: CatalogRuntim
     createProduct: (request) => safe(() => {
       const input = checkedRequest('createProduct', request);
       return store.transaction(() => {
+        if (!input.categoryIds.some((id) => store.getCategory(id)?.active)) throw new DomainError('CATEGORY_REQUIRED', 'Choose an active category before creating a product.');
         const id = runtime.newId(); const now = runtime.now();
-        const product: ManagedProduct = { id, name: input.name, description: input.description, active: input.active, imageReference: input.imageReference, createdAt: now, updatedAt: now, revision: 0, categoryIds: [...input.categoryIds], primaryCategoryId: input.primaryCategoryId, variants: [newVariant(id, input.firstVariant)] };
+        const product: ManagedProduct = { ...((input.ticketUses ?? 0) > 0 ? { ticketUses: input.ticketUses } : {}), id, name: input.name, description: input.description, active: input.active, imageReference: input.imageReference, createdAt: now, updatedAt: now, revision: 0, categoryIds: [...input.categoryIds], primaryCategoryId: input.primaryCategoryId, variants: [input.firstVariant, ...(input.additionalVariants ?? [])].map((fields) => newVariant(id, fields)) };
         validateManagedProduct(product); checkAssignments(product); assertUniqueVariantMetadata(store.listProducts(), product);
         store.insertProduct(product);
         return product;
@@ -71,7 +72,7 @@ export function createCatalogService(store: CatalogStore, runtime: CatalogRuntim
       const input = checkedRequest('updateProduct', request);
       return store.transaction(() => {
         const product = get(input.productId, input.expectedRevision);
-        return persist({ ...changed(product), name: input.name, description: input.description, active: input.active, imageReference: input.imageReference }, input.expectedRevision);
+        return persist({ ...changed(product), ...(input.ticketUses === undefined ? {} : { ticketUses: input.ticketUses }), name: input.name, description: input.description, active: input.active, imageReference: input.imageReference }, input.expectedRevision);
       });
     }),
     createVariant: (request) => safe(() => {
@@ -100,6 +101,27 @@ export function createCatalogService(store: CatalogStore, runtime: CatalogRuntim
         return persist({ ...changed(product), categoryIds: [...input.categoryIds], primaryCategoryId: input.primaryCategoryId }, input.expectedRevision);
       });
     }),
+    removeVariant: (request) => safe(() => {
+      const input = checkedRequest('removeVariant', request);
+      return store.transaction(() => {
+        const product = get(input.productId, input.expectedProductRevision);
+        const variant = product.variants.find((entry) => entry.id === input.variantId);
+        if (!variant) throw new DomainError('NOT_FOUND', 'Variant does not belong to this product.');
+        if (variant.revision !== input.expectedRevision) throw new DomainError('CONFLICT', 'This variant changed. Reload it before deleting.');
+        if (product.variants.length === 1) throw new DomainError('LAST_VARIANT', 'Keep at least one variant, or delete the product.');
+        if (!store.removeVariant) throw new DomainError('NOT_SUPPORTED', 'Catalog deletion is unavailable.');
+        store.removeVariant(product.id, variant.id, product.revision, variant.revision, runtime.now());
+        return get(product.id);
+      });
+    }),
+    removeProduct: (request) => safe(() => {
+      const input = checkedRequest('removeProduct', request);
+      return store.transaction(() => { get(input.productId, input.expectedRevision); if (!store.removeProduct) throw new DomainError('NOT_SUPPORTED', 'Catalog deletion is unavailable.'); store.removeProduct(input.productId, input.expectedRevision, runtime.now()); return { deleted: true as const }; });
+    }),
+    removeCategory: (request) => safe(() => {
+      const input = checkedRequest('removeCategory', request);
+      return store.transaction(() => { if (!store.getCategory(input.categoryId)) throw new DomainError('NOT_FOUND', 'Category does not exist.'); if (!store.removeCategory) throw new DomainError('NOT_SUPPORTED', 'Catalog deletion is unavailable.'); store.removeCategory(input.categoryId, input.expectedRevision, runtime.now()); return { deleted: true as const }; });
+    }),
     listCategories: (request) => safe(() => {
       const input = checkedRequest('listCategories', request);
       return store.transaction(() => categorySummaries(store.listProducts(), store.listCategories(), input.includeInactive));
@@ -107,7 +129,7 @@ export function createCatalogService(store: CatalogStore, runtime: CatalogRuntim
     createCategory: (request) => safe(() => {
       const input = checkedRequest('createCategory', request);
       return store.transaction(() => {
-        const category: Category = { id: runtime.newId(), ...input, revision: 0 };
+        const category: Category = { id: runtime.newId(), ...input, color: input.color ?? null, revision: 0 };
         validateCategoryForest([...store.listCategories(), category]);
         store.insertCategory(category);
         return category;
@@ -119,7 +141,7 @@ export function createCatalogService(store: CatalogStore, runtime: CatalogRuntim
         const category = store.getCategory(input.categoryId);
         if (category === null) throw new DomainError('NOT_FOUND', 'Category does not exist.');
         if (category.revision !== input.expectedRevision) throw new DomainError('CONFLICT', 'This category changed in another editor. Reload it before saving.');
-        const updated: Category = { id: category.id, name: input.name, parentId: input.parentId, active: input.active, position: input.position, revision: nextRevision(category.revision) };
+        const updated: Category = { color: input.color === undefined ? category.color ?? null : input.color, id: category.id, name: input.name, parentId: input.parentId, active: input.active, position: input.position, revision: nextRevision(category.revision) };
         validateCategoryForest(store.listCategories().map((entry) => entry.id === category.id ? updated : entry));
         store.updateCategory(updated, input.expectedRevision);
         return updated;

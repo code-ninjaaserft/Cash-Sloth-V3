@@ -152,7 +152,7 @@ test('animated menu overlays mounted categories and preserves filtering, focus a
     expect(await categoryNode.evaluate((element) => element.isConnected && element === document.querySelector('.pos-category-navigation'))).toBe(true);
     expect(await scroll.evaluate((element) => element.scrollTop)).toBe(scrollTop);
     expect(await page.locator('.pos-category-navigation').innerHTML()).toBe(savedCategoryMarkup);
-    await expect(page.locator('.application-nav-surface')).toHaveCSS('background-color', /rgb\(/u);
+    await expect(page.locator('.application-nav-surface')).toHaveCSS('background-color', /^(?:rgb\(|color\(srgb )[^/]*\)$/u);
     expect(await page.locator('.hamburger-line').first().evaluate((element) => getComputedStyle(element).transform)).not.toBe('none');
     await page.locator('.application-nav-toggle').focus();
     for (let index = 0; index < 10; index += 1) {
@@ -253,7 +253,7 @@ test('overlay layout is stable across widths, rapid reversals, explicit touch mo
       for (const sample of await sampleTransitionLayout(page)) expect(sample).toEqual(before);
       await expect(global).toHaveCSS('opacity', '1');
       await expect(layer).toHaveAttribute('inert', '');
-      for (const name of ['POS', 'Catalog', 'Import', 'Sales history', 'Reconciliation', 'System status', 'Development tools', 'Settings (coming later)']) {
+      for (const name of ['POS', 'Catalog', 'Import', 'Sales history', 'Reconciliation', 'System status', 'Development tools', 'Settings']) {
         const button = global.getByRole('button', { name, exact: true });
         await expect(button).toBeVisible();
         const bounds = await button.boundingBox();
@@ -263,7 +263,7 @@ test('overlay layout is stable across widths, rapid reversals, explicit touch mo
           expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
         }
       }
-      await expect(global.getByRole('button', { name: 'Settings (coming later)', exact: true })).toBeDisabled();
+      await expect(global.getByRole('button', { name: 'Settings', exact: true })).toBeEnabled();
       await expect.poll(async () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
       if (width === 1280) {
         // Reverse a real closing transition before its completion callback/timer.

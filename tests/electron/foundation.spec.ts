@@ -74,7 +74,7 @@ test('React runs in a sandbox and validates IPC against the actual Electron runt
     }));
     expect(rendererGlobals).toEqual({
       requireType: 'undefined', processType: 'undefined',
-      apiKeys: ['system', 'pos', 'catalog', 'payments', 'management', 'history', 'files'], systemKeys: ['getInfo'],
+      apiKeys: ['presets', 'system', 'pos', 'catalog', 'payments', 'management', 'history', 'files'], systemKeys: ['getInfo'],
     });
     const electronDataPaths = await application.evaluate(({ app }) => ({
       userData: app.getPath('userData'),
@@ -120,13 +120,13 @@ test('React runs in a sandbox and validates IPC against the actual Electron runt
       try {
         await unauthorized.loadURL(original.webContents.getURL());
         return await unauthorized.webContents.executeJavaScript(
-          'Promise.all([window.cashSloth.system.getInfo(), window.cashSloth.pos.getCart({}), window.cashSloth.catalog.listCategories({includeInactive:false}), window.cashSloth.payments.getActiveCheckout({}), window.cashSloth.payments.reconcile({kind:"payment",referenceId:"attempt",idempotencyKey:"action",resolution:"exclude-no-transfer",reason:"Untrusted window must be rejected",deliberateConfirmation:true}),window.cashSloth.management.previewDemoCatalog({}),window.cashSloth.history.getSaleContext({saleId:"sale-test"}),window.cashSloth.files.chooseCatalogCsv({})].map(result => result.then(() => "unexpected", () => "rejected")))',
+          'Promise.all([window.cashSloth.system.getInfo(), window.cashSloth.pos.getCart({}), window.cashSloth.catalog.listCategories({includeInactive:false}), window.cashSloth.payments.getActiveCheckout({}), window.cashSloth.payments.reconcile({kind:"payment",referenceId:"attempt",idempotencyKey:"action",resolution:"exclude-no-transfer",reason:"Untrusted window must be rejected",deliberateConfirmation:true}),window.cashSloth.management.previewDemoCatalog({}),window.cashSloth.history.getSaleContext({saleId:"sale-test"}),window.cashSloth.files.chooseCatalogCsv({}),window.cashSloth.presets.getState({}),window.cashSloth.presets.save({operationId:"untrusted-op",catalogVersion:"0".repeat(64),presetId:null,expectedRevision:null,name:"Untrusted event",empty:false})].map(result => result.then(() => "unexpected", () => "rejected")))',
         ) as string[];
       } finally {
         unauthorized.destroy();
       }
     }, join(dirname(mainPath), 'preload.cjs'));
-    expect(unauthorizedResult).toEqual(Array.from({ length: 8 }, () => 'rejected'));
+    expect(unauthorizedResult).toEqual(Array.from({ length: 10 }, () => 'rejected'));
     const probe = await application.evaluate((_electronModule, input) => {
       const requireModule = process.getBuiltinModule('module').createRequire(input.mainUrl);
       const main: unknown = requireModule(input.mainPath);

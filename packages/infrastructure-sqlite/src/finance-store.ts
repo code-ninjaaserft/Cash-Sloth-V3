@@ -1,3 +1,5 @@
+import {completeBenefit,postWalletEntry} from './promotion-completion.js';
+import { issueSaleTickets } from './ticket-issuance.js';
 import {
   checkoutBalance, DomainError, financialSaleFromLegacy, paymentAllocation, quoteRefundItems,
   validateCheckoutSession, validateFinancialSale, validatePaymentAttempt, validateRefund, validateRefundAttempt, validateRefundHistory,
@@ -6,7 +8,7 @@ import {
 } from '@cash-sloth/domain';
 import type { FinanceStore } from '@cash-sloth/application';
 import {
-  CheckoutSessionSchema, FinancialEventSchema, FinancialSaleSchema, PaymentAttemptSchema,
+  TeamBookingSchema, PresetSchema, CheckoutSessionSchema, FinancialEventSchema, FinancialSaleSchema, PaymentAttemptSchema,
   ReconciliationActionSchema, RefundAttemptSchema, RefundSchema,
 } from '@cash-sloth/contracts';
 import type { DatabaseConnection } from './connection.js';
@@ -58,6 +60,22 @@ export function createFinanceStore(connection: DatabaseConnection, hooks: PosSto
     const refund = RefundSchema.parse(payload(row)); validateRefund(refund); return refund;
   };
   const store: FinanceStore = {
+ hasTeamBooking: (id) => !!sqlite.prepare('SELECT 1 FROM team_consumption WHERE session_id=?').get(id),
+ recordTeamBooking(session,completedAt) { requireTransaction(); sqlite.prepare('INSERT INTO team_consumption VALUES(?,?)').run(session.id,JSON.stringify({sessionId:session.id,eventTitle:store.getEventTitle?.()??null,completedAt,cart:session.cart})); issueSaleTickets(connection,{id:session.id,completedAt,items:session.cart.items,eventTitle:store.getEventTitle?.()??null}); },
+ listTeamBookings: () => sqlite.prepare('SELECT data FROM team_consumption ORDER BY rowid DESC LIMIT 10000').all().map(row => TeamBookingSchema.parse(JSON.parse(String(row['data'])) as unknown)),
+    getEventId() {
+      if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='active_event_preset'").get()) return null;
+      const row = sqlite.prepare('SELECT preset_id FROM active_event_preset WHERE singleton=1').get();
+      return row ? String(row['preset_id']) : null;
+    },
+    getEventTitle() {
+      // Earlier schema versions have no event context; their receipts retain the fallback title.
+      if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='active_event_preset'").get()) return null;
+      const row = sqlite.prepare('SELECT p.data FROM active_event_preset a JOIN event_presets p ON p.id=a.preset_id WHERE a.singleton=1').get();
+      if (!row) return null;
+      if (typeof row['data'] !== 'string') throw new Error('Invalid active event.');
+      return PresetSchema.parse(JSON.parse(row['data']) as unknown).name;
+    },
     pos, transaction,
     getSession(id) {
       const row = sqlite.prepare('SELECT data FROM payment_sessions WHERE id = ?').get(id);
@@ -77,7 +95,8 @@ export function createFinanceStore(connection: DatabaseConnection, hooks: PosSto
         sqlite.prepare('INSERT INTO payment_sessions (id, cart_id, state, created_at, data) VALUES (?, ?, ?, ?, ?)')
           .run(session.id, session.cart.id, session.status, session.createdAt, JSON.stringify(session));
       } else {
-        if (immutableFields(existing, ['status', 'saleId']) !== immutableFields(session, ['status', 'saleId']) || existing.status !== 'open' && !equal(existing, session)) conflict('Checkout snapshot is immutable.');
+        if (immutableFields(existing, ['status', 'saleId', 'tipRappen']) !== immutableFields(session, ['status', 'saleId', 'tipRappen']) || existing.status !== 'open' && !equal(existing, session)) conflict('Checkout snapshot is immutable.');
+        if ((existing.tipRappen ?? 0) !== (session.tipRappen ?? 0) && (existing.status !== 'open' || store.listPaymentAttempts(session.id).some((attempt) => !['failed', 'excluded'].includes(attempt.status)))) conflict('Tip cannot change after a payment is prepared.');
         if (session.status === 'completed' && store.getSaleBySession(session.id)?.id !== session.saleId) conflict('A completed checkout requires its committed sale snapshot.');
         sqlite.prepare('UPDATE payment_sessions SET state = ?, data = ? WHERE id = ?').run(session.status, JSON.stringify(session), session.id);
       }
@@ -150,14 +169,16 @@ export function createFinanceStore(connection: DatabaseConnection, hooks: PosSto
       const existing = store.getFinancialSale(sale.id);
       if (existing !== null) { if (!equal(existing, sale)) conflict('Sale identity is already bound to another snapshot.'); return; }
       const session = store.getSession(sale.checkoutSessionId);
-      if (session === null || session.status !== 'open' || session.cart.id !== sale.cartId || session.cart.revision !== sale.cartRevision || !equal(session.cart.items, sale.items) || session.cart.subtotalRappen !== sale.subtotalRappen || sale.source !== 'payments') conflict('Sale does not match its open checkout snapshot.');
+      if (session === null || session.status !== 'open' || session.cart.id !== sale.cartId || session.cart.revision !== sale.cartRevision || !equal(session.cart.items, sale.items) || session.cart.subtotalRappen !== sale.subtotalRappen || sale.source !== 'payments' || (session.tipRappen ?? 0) !== (sale.tipRappen ?? 0)) conflict('Sale does not match its open checkout snapshot.');
       const attempts = store.listPaymentAttempts(session.id);
       if (attempts.some((a) => ['prepared', 'reported', 'uncertain'].includes(a.status))) conflict('Resolve outstanding payment attempts before completing a sale.');
-      const balance = checkoutBalance(session.cart.subtotalRappen, attempts);
+      const balance = checkoutBalance(session.cart.subtotalRappen, attempts, session.tipRappen ?? 0);
       const allocations = attempts.filter((attempt) => attempt.status === 'confirmed').map(paymentAllocation);
       if (!balance.settled || balance.finalPayableRappen !== sale.amountDueRappen || balance.roundingAdjustmentRappen !== sale.roundingAdjustmentRappen || !equal(allocations, sale.payments)) conflict('Sale payment allocations do not match durable confirmations.');
       sqlite.prepare('INSERT INTO financial_sales (id, session_id, cart_id, completed_at, actual_paid_rappen, data) VALUES (?, ?, ?, ?, ?, ?)')
         .run(sale.id, sale.checkoutSessionId, sale.cartId, sale.completedAt, sale.actualPaidRappen, JSON.stringify(sale));
+      issueSaleTickets(connection, sale);
+      completeBenefit(connection,sale.cartId,sale.id,sale.completedAt);
     },
     getRefundAttempt(id) {
       const row = sqlite.prepare('SELECT data FROM refund_attempts WHERE id = ?').get(id);
@@ -209,6 +230,7 @@ export function createFinanceStore(connection: DatabaseConnection, hooks: PosSto
       validateRefundHistory(sale, [...store.listRefunds(sale.id), refund]);
       sqlite.prepare('INSERT INTO refunds (id, idempotency_key, attempt_id, sale_id, amount_rappen, data) VALUES (?, ?, ?, ?, ?, ?)')
         .run(refund.id, refund.idempotencyKey, refund.attemptId, refund.saleId, refund.amountRappen, JSON.stringify(refund));
+      if(refund.method==='voucher'){const sale=store.getFinancialSale(refund.saleId);if(!sale)throw new Error('Missing voucher sale');const ledger=sqlite.prepare("SELECT l.code FROM wallet_ledger l JOIN payment_attempts a ON a.id=l.id WHERE l.session_id=? AND l.kind='pay' AND a.state='confirmed' ORDER BY l.rowid LIMIT 1").get(sale.checkoutSessionId);if(!ledger)throw new Error('Missing original voucher');postWalletEntry(connection,{id:refund.id,code:String(ledger['code']),sessionId:sale.checkoutSessionId,amountRappen:refund.amountRappen,kind:'refund',at:refund.completedAt});}
     },
     appendEvent(input) {
       requireTransaction(); const event = FinancialEventSchema.parse(input);

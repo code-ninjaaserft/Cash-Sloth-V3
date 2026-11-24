@@ -1,4 +1,4 @@
-// English foundation copy only. Locale selection and translations are future scope.
+// English source copy; German UI translations are provided by translate().
 export const foundationMessages = {
   milestone: 'MVP 0.1 · System status',
   title: 'Cash Sloth V3',
@@ -11,3 +11,7 @@ export const foundationMessages = {
   failed: 'The runtime check failed. Try again or inspect the host diagnostics.',
   scope: 'MVP 0.1 supports a persistent catalog, draft cart and cash sales. Card payments, refunds and customer displays are not implemented.',
 } as const;
+
+import { german } from './german.js';
+export type Locale = 'en' | 'de';
+export function translate(text: string, locale: Locale): string { return locale === 'de' ? german[text] ?? text : text; }

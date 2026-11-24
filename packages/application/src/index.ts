@@ -19,3 +19,14 @@ export interface SystemInfoProvider {
 export function createSystemService(provider: SystemInfoProvider) {
   return { getInfo: (): SystemInfo => provider.getInfo() };
 }
+
+export * from './preset-ports.js';
+export * from './preset-service.js';
+
+export * from './customer-display-service.js';
+
+export { createTicketService } from './ticket-service.js';
+export type { TicketStore, TicketRedemption } from './ticket-ports.js';
+
+export {createPromotionService} from './promotion-service.js';
+export type {PromotionStore,PromotionRuntime} from './promotion-ports.js';

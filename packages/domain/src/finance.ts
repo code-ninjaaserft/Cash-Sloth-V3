@@ -2,9 +2,10 @@ import { validateCart } from './cart.js';
 import { addMoney, assertQuantity, assertRappen, calculateCashPayment, roundCashRappen } from './money.js';
 import { assertIdentifier, DomainError, type Cart, type CheckoutAttempt, type Sale, type SaleItem } from './models.js';
 
-export type PaymentMethod = 'cash' | 'card' | 'twint';
+export type PaymentMethod = 'cash' | 'card' | 'twint' | 'voucher';
 export type PaymentStatus = 'prepared' | 'reported' | 'confirmed' | 'uncertain' | 'failed' | 'excluded';
 export interface CheckoutSession {
+  readonly tipRappen?: number | undefined;
   readonly id: string; readonly cart: Cart; readonly status: 'open' | 'completed' | 'cancelled';
   readonly createdAt: string; readonly saleId: string | null;
 }
@@ -21,6 +22,9 @@ export interface PaymentAllocation {
   readonly operatorConfirmed: true; readonly confirmedAt: string;
 }
 export interface FinancialSale {
+  readonly tipRappen?: number | undefined;
+  readonly eventId?: string | null | undefined;
+  readonly eventTitle?: string | null | undefined;
   readonly id: string; readonly checkoutSessionId: string; readonly cartId: string; readonly cartRevision: number;
   readonly completedAt: string; readonly items: readonly SaleItem[]; readonly subtotalRappen: number;
   readonly roundingAdjustmentRappen: number; readonly amountDueRappen: number; readonly actualPaidRappen: number;
@@ -63,9 +67,10 @@ export function assertFinancialTimestamp(value: string): void {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(value) || !Number.isFinite(Date.parse(value))) throw new DomainError('INVALID_INPUT', 'Invalid financial timestamp.');
 }
 export function assertPaymentMethod(method: PaymentMethod): void {
-  if (!['cash', 'card', 'twint'].includes(method)) throw new DomainError('INVALID_INPUT', 'Invalid payment method.');
+  if (!['cash', 'card', 'twint', 'voucher'].includes(method)) throw new DomainError('INVALID_INPUT', 'Invalid payment method.');
 }
 export function validateCheckoutSession(session: CheckoutSession): void {
+  assertRappen(session.tipRappen ?? 0); addMoney(session.cart.subtotalRappen, session.tipRappen ?? 0);
   assertIdentifier(session.id); validateCart(session.cart); assertFinancialTimestamp(session.createdAt);
   if (session.cart.items.length === 0 || !['open', 'completed', 'cancelled'].includes(session.status)) throw new DomainError('INVALID_INPUT', 'Invalid checkout session.');
   if ((session.status === 'completed') !== (session.saleId !== null)) throw new DomainError('INVALID_INPUT', 'Inconsistent checkout sale reference.');
@@ -86,8 +91,9 @@ export function validatePaymentAttempt(attempt: PaymentAttempt): void {
   if (attempt.status === 'excluded' && attempt.confirmedAt !== null && (attempt.method === 'cash' || attempt.reportedAt === null || attempt.note === null || attempt.note.trim().length < 10)) throw new DomainError('INVALID_INPUT', 'A compensated digital allocation must retain its original confirmation and investigation reason.');
   if (attempt.status === 'prepared' && (attempt.reportedAt !== null || attempt.confirmedAt !== null)) throw new DomainError('INVALID_INPUT', 'Prepared payment has confirmation data.');
 }
-export function checkoutBalance(subtotalRappen: number, attempts: readonly PaymentAttempt[]): CheckoutBalance {
-  assertRappen(subtotalRappen);
+export function checkoutBalance(subtotalRappen: number, attempts: readonly PaymentAttempt[], tipRappen = 0): CheckoutBalance {
+  assertRappen(subtotalRappen); const originalSubtotal = subtotalRappen;
+  subtotalRappen = addMoney(subtotalRappen, tipRappen);
   let digital = 0; let applied = 0; let cash: PaymentAttempt | undefined; const ids = new Set<string>();
   for (const attempt of attempts) {
     validatePaymentAttempt(attempt);
@@ -104,18 +110,19 @@ export function checkoutBalance(subtotalRappen: number, attempts: readonly Payme
   if (cash !== undefined && (cash.appliedRappen !== cashDue || cash.roundingAdjustmentRappen !== adjustment)) throw new DomainError('CONFLICT', 'Cash does not settle the remaining balance.');
   const payable = cash === undefined ? subtotalRappen : addMoney(digital, cashDue);
   if (applied > payable) throw new DomainError('OVERPAYMENT', 'Applied payments exceed the final payable amount.');
-  return { subtotalRappen, confirmedDigitalRappen: digital, confirmedAppliedRappen: applied, outstandingRappen: payable - applied,
+  return { subtotalRappen: originalSubtotal, confirmedDigitalRappen: digital, confirmedAppliedRappen: applied, outstandingRappen: payable - applied,
     cashDueRappen: cash === undefined ? cashDue : 0, roundingAdjustmentRappen: adjustment, finalPayableRappen: payable,
     settled: cash !== undefined || digital === subtotalRappen && attempts.some((attempt) => attempt.status === 'confirmed') };
 }
-export function quotePayment(subtotalRappen: number, attempts: readonly PaymentAttempt[], method: PaymentMethod, intendedRappen: number) {
+export function quotePayment(subtotalRappen: number, attempts: readonly PaymentAttempt[], method: PaymentMethod, intendedRappen: number, tipRappen = 0) {
   assertPaymentMethod(method); assertRappen(intendedRappen);
-  const balance = checkoutBalance(subtotalRappen, attempts);
+  const balance = checkoutBalance(subtotalRappen, attempts, tipRappen);
   if (attempts.some((attempt) => attempt.status === 'confirmed' && attempt.method === 'cash') || balance.settled && subtotalRappen > 0) throw new DomainError('ALREADY_SETTLED', 'This checkout is already fully settled.');
   if (method !== 'cash') {
     if (intendedRappen === 0 || intendedRappen > balance.outstandingRappen) throw new DomainError('OVERPAYMENT', 'Digital payment must be positive and no greater than the outstanding balance.');
     return { appliedRappen: intendedRappen, cashTenderedRappen: null, changeRappen: 0, roundingAdjustmentRappen: 0 };
   }
+  if (balance.cashDueRappen < tipRappen) throw new DomainError('INVALID_INPUT', 'Cash rounding cannot exceed the merchandise amount.');
   const payment = calculateCashPayment(balance.cashDueRappen, intendedRappen);
   if (intendedRappen % 5 !== 0) throw new DomainError('CASH_DENOMINATION', 'Cash tendered must be a multiple of CHF 0.05.');
   return { appliedRappen: payment.cashAppliedRappen, cashTenderedRappen: intendedRappen, changeRappen: payment.changeRappen,
@@ -127,11 +134,14 @@ export function paymentAllocation(attempt: PaymentAttempt): PaymentAllocation {
   return { attemptId: attempt.id, method: attempt.method, amountRappen: attempt.appliedRappen, cashTenderedRappen: attempt.cashTenderedRappen, changeRappen: attempt.changeRappen, operatorConfirmed: true, confirmedAt: attempt.confirmedAt };
 }
 export function validateFinancialSale(sale: FinancialSale): void {
+  const totalBeforeRounding = addMoney(sale.subtotalRappen, sale.tipRappen ?? 0);
+  if (sale.eventId != null) assertIdentifier(sale.eventId);
+  if (sale.eventTitle != null && (typeof sale.eventTitle !== 'string' || !sale.eventTitle.trim() || sale.eventTitle.length > 200 || /\p{Cc}/u.test(sale.eventTitle))) throw new DomainError('INVALID_INPUT', 'Invalid sale event title.');
   assertIdentifier(sale.id); assertIdentifier(sale.checkoutSessionId); assertFinancialTimestamp(sale.completedAt);
   validateCart({ id: sale.cartId, revision: sale.cartRevision, items: sale.items, subtotalRappen: sale.subtotalRappen });
   if (sale.items.length === 0 || sale.payments.length === 0 || sale.payments.length > 1000 || !['legacy', 'payments'].includes(sale.source)) throw new DomainError('INVALID_INPUT', 'Invalid sale snapshot.');
-  assertRappen(sale.amountDueRappen); assertRappen(sale.actualPaidRappen);
-  if (!Number.isSafeInteger(sale.roundingAdjustmentRappen) || Math.abs(sale.roundingAdjustmentRappen) > 2 || BigInt(sale.subtotalRappen) + BigInt(sale.roundingAdjustmentRappen) !== BigInt(sale.amountDueRappen)) throw new DomainError('INVALID_INPUT', 'Sale payable amount is inconsistent.');
+  assertRappen(sale.amountDueRappen); assertRappen(sale.actualPaidRappen); assertRappen(sale.actualPaidRappen - (sale.tipRappen ?? 0));
+  if (!Number.isSafeInteger(sale.roundingAdjustmentRappen) || Math.abs(sale.roundingAdjustmentRappen) > 2 || BigInt(totalBeforeRounding) + BigInt(sale.roundingAdjustmentRappen) !== BigInt(sale.amountDueRappen)) throw new DomainError('INVALID_INPUT', 'Sale payable amount is inconsistent.');
   let total = 0; let digital = 0; let seenCash = false; const ids = new Set<string>();
   for (const payment of sale.payments) {
     assertIdentifier(payment.attemptId); assertPaymentMethod(payment.method); assertRappen(payment.amountRappen); assertRappen(payment.changeRappen); assertFinancialTimestamp(payment.confirmedAt);
@@ -146,7 +156,7 @@ export function validateFinancialSale(sale: FinancialSale): void {
     }
     total = addMoney(total, payment.amountRappen);
   }
-  if (digital > sale.subtotalRappen || total !== sale.amountDueRappen || total !== sale.actualPaidRappen || (seenCash ? addMoney(digital, roundCashRappen(sale.subtotalRappen - digital)) !== total : sale.roundingAdjustmentRappen !== 0)) throw new DomainError('INVALID_INPUT', 'Applied payments must equal the final payable amount.');
+  if (digital > totalBeforeRounding || total !== sale.amountDueRappen || total !== sale.actualPaidRappen || (seenCash ? addMoney(digital, roundCashRappen(totalBeforeRounding - digital)) !== total : sale.roundingAdjustmentRappen !== 0)) throw new DomainError('INVALID_INPUT', 'Applied payments must equal the final payable amount.');
 }
 export function financialSaleFromLegacy(sale: Sale): FinancialSale {
   const converted: FinancialSale = { id: sale.id, checkoutSessionId: sale.idempotencyKey, cartId: sale.cartId, cartRevision: sale.cartRevision, completedAt: sale.completedAt,
@@ -167,7 +177,7 @@ export function quoteRefundItems(sale: FinancialSale, refunds: readonly Refund[]
     refundedAmount = addMoney(refundedAmount, refund.amountRappen);
     for (const item of refund.items) refunded.set(item.saleItemId, (refunded.get(item.saleItemId) ?? 0) + item.quantity);
   }
-  if (refundedAmount > sale.actualPaidRappen) throw new DomainError('REFUND_LIMIT', 'Previous refunds exceed the actual original payment.');
+  if (refundedAmount > sale.actualPaidRappen - (sale.tipRappen ?? 0)) throw new DomainError('REFUND_LIMIT', 'Previous refunds exceed the actual original payment.');
   const prefixes = new Map<string, bigint>(); let prefix = 0n;
   for (const item of sale.items) { prefixes.set(item.id, prefix); prefix += BigInt(item.lineTotalRappen); }
   const selected = new Set<string>();
@@ -180,7 +190,7 @@ export function quoteRefundItems(sale: FinancialSale, refunds: readonly Refund[]
     const base = BigInt(item.unitPriceRappen) * BigInt(selection.quantity);
     const start = (prefixes.get(item.id) ?? 0n) + BigInt(item.unitPriceRappen) * BigInt(offset);
     const end = start + base;
-    const amount = sale.subtotalRappen === 0 ? 0n : end * BigInt(sale.actualPaidRappen) / BigInt(sale.subtotalRappen) - start * BigInt(sale.actualPaidRappen) / BigInt(sale.subtotalRappen);
+    const amount = sale.subtotalRappen === 0 ? 0n : end * BigInt(sale.actualPaidRappen - (sale.tipRappen ?? 0)) / BigInt(sale.subtotalRappen) - start * BigInt(sale.actualPaidRappen - (sale.tipRappen ?? 0)) / BigInt(sale.subtotalRappen);
     return { saleItemId: item.id, quantity: selection.quantity, unitOffset: offset, unitPriceRappen: item.unitPriceRappen, baseRappen: Number(base), roundingAllocationRappen: Number(amount - base), amountRappen: Number(amount) };
   });
 }
@@ -218,5 +228,5 @@ export function validateRefundHistory(sale: FinancialSale, refunds: readonly Ref
     })) throw new DomainError('INVALID_INPUT', 'Persisted refund does not match historical unit allocations.');
     total = addMoney(total, refund.amountRappen); prior.push(refund);
   }
-  if (total > sale.actualPaidRappen) throw new DomainError('REFUND_LIMIT', 'Cumulative refunds exceed the actual payment.');
+  if (total > sale.actualPaidRappen - (sale.tipRappen ?? 0)) throw new DomainError('REFUND_LIMIT', 'Cumulative refunds exceed the actual payment.');
 }

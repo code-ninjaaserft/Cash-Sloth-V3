@@ -1,3 +1,4 @@
+import { t } from './preferences.js';
 import React, { useEffect, useRef, useState } from 'react';
 import type { CatalogApi, CategorySummary } from '@cash-sloth/contracts';
 import { catalogError, unwrapCatalog } from './catalog-ui.js';
@@ -31,6 +32,6 @@ export function PosCategoryBrowser({ api, state, onStateChange }: {
     <PosCategoryNavigation categories={categories} categoryId={state.categoryId} expandedCategoryIds={state.expandedCategoryIds}
       onSelect={(categoryId, categoryPath) => onStateChange({ ...state, categoryId, categoryPath, restricted: categoryId !== null && state.restricted })}
       onExpandedChange={(expandedCategoryIds) => onStateChange({ ...state, expandedCategoryIds })} />
-    {error && <p className="pos-error" role="alert">Categories could not be loaded. {error}</p>}
+    {error && <p className="pos-error" role="alert">{t("Categories could not be loaded.")}{' '}{error}</p>}
   </>;
 }

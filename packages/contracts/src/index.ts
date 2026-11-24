@@ -1,3 +1,15 @@
+import type {PromotionsApi} from './promotions.js';
+export * from './promotions.js';
+import type { TicketdeskControlApi } from './ticketdesk.js';
+export * from './ticketdesk.js';
+import type { TicketsApi } from './tickets.js';
+export * from './tickets.js';
+import type { DemoApi } from './demo.js';
+export * from './demo.js';
+import type { CustomerDisplayApi } from './customer-display.js';
+export * from './customer-display.js';
+import type { PresetsApi } from './presets.js';
+export * from './presets.js';
 import { z } from 'zod';
 import type { PosApi } from './pos.js';
 import type { CatalogApi } from './catalog.js';
@@ -33,6 +45,12 @@ export const SystemInfoSchema = z.strictObject({
 export type SystemInfo = z.infer<typeof SystemInfoSchema>;
 
 export interface CashSlothApi {
+ readonly promotions?:PromotionsApi;
+  readonly ticketdesk?: TicketdeskControlApi;
+  readonly tickets?: TicketsApi;
+  readonly demo?: DemoApi;
+  readonly customerDisplay?: CustomerDisplayApi;
+  readonly presets: PresetsApi;
   readonly management: ManagementApi;
   readonly history: HistoryApi;
   readonly files: FilesApi;

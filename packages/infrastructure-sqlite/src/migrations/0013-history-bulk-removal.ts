@@ -1,0 +1,1 @@
+export const historyBulkRemovalMigration = { version: 13, name: '0013-history-bulk-removal', sql: 'CREATE TABLE history_purge_operations (id TEXT PRIMARY KEY NOT NULL, request TEXT NOT NULL, removed_count INTEGER NOT NULL CHECK(removed_count>=0)) STRICT;' } as const;

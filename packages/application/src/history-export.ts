@@ -32,7 +32,7 @@ export function buildHistoryExport(records: readonly HistoryExportRecord[], gene
     append(header, true);
     return { append, result: (): HistoryExportFile => ({ name, content: lines.join(''), rows: count }) };
   }
-  const sales = file('sales.csv', ['sale_id', 'checkout_session_id', 'completed_at_utc', 'source', 'subtotal_rappen', 'rounding_adjustment_rappen', 'paid_rappen', 'refunded_rappen', 'remaining_refundable_rappen', 'payment_method', 'refund_status', 'unresolved_refund_attempts', 'reconciliation_actions']);
+  const sales = file('sales.csv', ['sale_id', 'checkout_session_id', 'completed_at_utc', 'source', 'subtotal_rappen', 'rounding_adjustment_rappen', 'paid_rappen', 'refunded_rappen', 'remaining_refundable_rappen', 'payment_method', 'refund_status', 'unresolved_refund_attempts', 'reconciliation_actions', 'event_id', 'event_title', 'tip_rappen', 'removed_from_history_at', 'removal_reason']);
   const items = file('sale_items.csv', ['sale_id', 'sale_item_id', 'product_id', 'variant_id', 'product_name', 'variant_name', 'quantity', 'unit_price_rappen', 'line_total_rappen', 'quantity_refunded', 'quantity_refundable']);
   const payments = file('payments.csv', ['sale_id', 'payment_attempt_id', 'method', 'applied_rappen', 'cash_tendered_rappen', 'change_rappen', 'operator_confirmed', 'confirmed_at_utc', 'confirmation_kind']);
   const refunds = file('refunds.csv', ['sale_id', 'refund_id', 'refund_attempt_id', 'refund_request_key', 'method', 'amount_rappen', 'operator_confirmed', 'confirmed_at_utc', 'completed_at_utc', 'confirmation_kind']);
@@ -47,7 +47,7 @@ export function buildHistoryExport(records: readonly HistoryExportRecord[], gene
     const isFull = sale.items.every((item) => (quantities.get(item.id) ?? 0) === item.quantity);
     const refundStatus = record.refunds.length === 0 ? 'none' : isFull ? 'full' : 'partial';
     paid += BigInt(sale.actualPaidRappen); refunded += refundedAmount;
-    sales.append([sale.id, sale.checkoutSessionId, sale.completedAt, sale.source, sale.subtotalRappen, sale.roundingAdjustmentRappen, sale.actualPaidRappen, Number(refundedAmount), sale.actualPaidRappen - Number(refundedAmount), method, refundStatus, record.context.unresolvedRefundCount, record.context.reconciliationCount]);
+    sales.append([sale.id, sale.checkoutSessionId, sale.completedAt, sale.source, sale.subtotalRappen, sale.roundingAdjustmentRappen, sale.actualPaidRappen, Number(refundedAmount), sale.actualPaidRappen - (sale.tipRappen ?? 0) - Number(refundedAmount), method, refundStatus, record.context.unresolvedRefundCount, record.context.reconciliationCount, sale.eventId ?? null, sale.eventTitle ?? null, sale.tipRappen ?? 0, record.removedAt ?? null, record.removalReason ?? null]);
     for (const item of sale.items) items.append([sale.id, item.id, item.productId, item.variantId, item.productName, item.variantName, item.quantity, item.unitPriceRappen, item.lineTotalRappen, quantities.get(item.id) ?? 0, item.quantity - (quantities.get(item.id) ?? 0)]);
     for (const payment of sale.payments) payments.append([sale.id, payment.attemptId, payment.method, payment.amountRappen, payment.cashTenderedRappen, payment.changeRappen, payment.operatorConfirmed, payment.confirmedAt, 'manual_operator_assertion']);
     for (const refund of record.refunds) {

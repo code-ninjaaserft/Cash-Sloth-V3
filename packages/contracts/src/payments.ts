@@ -1,14 +1,14 @@
 import { z } from 'zod';
 import { CartItemSchema, CartSchema, CheckoutAttemptSchema, IdentifierSchema, PosErrorSchema, RappenSchema, RevisionSchema } from './pos.js';
 
-export const PaymentMethodSchema = z.enum(['cash', 'card', 'twint']);
+export const PaymentMethodSchema = z.enum(['cash', 'card', 'twint', 'voucher']);
 const timestamp = z.iso.datetime();
 const adjustment = z.number().int().min(-2).max(2);
-export const CheckoutSessionSchema = z.strictObject({ id: IdentifierSchema, cart: CartSchema, status: z.enum(['open', 'completed', 'cancelled']), createdAt: timestamp, saleId: IdentifierSchema.nullable() });
+export const CheckoutSessionSchema = z.strictObject({ tipRappen: RappenSchema.optional(), id: IdentifierSchema, cart: CartSchema, status: z.enum(['open', 'completed', 'cancelled']), createdAt: timestamp, saleId: IdentifierSchema.nullable() });
 export const PaymentAttemptSchema = z.strictObject({ id: IdentifierSchema, idempotencyKey: IdentifierSchema, sessionId: IdentifierSchema, method: PaymentMethodSchema, intendedRappen: RappenSchema, appliedRappen: RappenSchema, cashTenderedRappen: RappenSchema.nullable(), changeRappen: RappenSchema, roundingAdjustmentRappen: adjustment,
   status: z.enum(['prepared', 'reported', 'confirmed', 'uncertain', 'failed', 'excluded']), createdAt: timestamp, reportedAt: timestamp.nullable(), confirmedAt: timestamp.nullable(), note: z.string().max(1000).nullable() });
 export const PaymentAllocationSchema = z.strictObject({ attemptId: IdentifierSchema, method: PaymentMethodSchema, amountRappen: RappenSchema, cashTenderedRappen: RappenSchema.nullable(), changeRappen: RappenSchema, operatorConfirmed: z.literal(true), confirmedAt: timestamp });
-export const FinancialSaleSchema = z.strictObject({ id: IdentifierSchema, checkoutSessionId: IdentifierSchema, cartId: IdentifierSchema, cartRevision: RevisionSchema, completedAt: timestamp, items: z.array(CartItemSchema).min(1).max(1000).readonly(), subtotalRappen: RappenSchema, roundingAdjustmentRappen: adjustment, amountDueRappen: RappenSchema, actualPaidRappen: RappenSchema, payments: z.array(PaymentAllocationSchema).min(1).max(1000).readonly(), source: z.enum(['legacy', 'payments']) });
+export const FinancialSaleSchema = z.strictObject({ tipRappen: RappenSchema.optional(), eventId: IdentifierSchema.nullable().optional(), eventTitle: z.string().min(1).max(200).nullable().optional(), id: IdentifierSchema, checkoutSessionId: IdentifierSchema, cartId: IdentifierSchema, cartRevision: RevisionSchema, completedAt: timestamp, items: z.array(CartItemSchema).min(1).max(1000).readonly(), subtotalRappen: RappenSchema, roundingAdjustmentRappen: adjustment, amountDueRappen: RappenSchema, actualPaidRappen: RappenSchema, payments: z.array(PaymentAllocationSchema).min(1).max(1000).readonly(), source: z.enum(['legacy', 'payments']) });
 export const CheckoutBalanceSchema = z.strictObject({ subtotalRappen: RappenSchema, confirmedDigitalRappen: RappenSchema, confirmedAppliedRappen: RappenSchema, outstandingRappen: RappenSchema, cashDueRappen: RappenSchema, roundingAdjustmentRappen: adjustment, finalPayableRappen: RappenSchema, settled: z.boolean() });
 export const CheckoutViewSchema = z.strictObject({ session: CheckoutSessionSchema, attempts: z.array(PaymentAttemptSchema).max(1000).readonly(), balance: CheckoutBalanceSchema, sale: FinancialSaleSchema.nullable() });
 const selection = z.strictObject({ saleItemId: IdentifierSchema, quantity: z.number().int().min(1).max(9999) });
@@ -23,7 +23,11 @@ function result<T extends z.ZodType>(value: T) { return z.discriminatedUnion('ok
 const empty = z.strictObject({});
 const sessionRef = z.strictObject({ sessionId: IdentifierSchema });
 const attemptRef = z.strictObject({ attemptId: IdentifierSchema });
+export const TeamBookingSchema = z.strictObject({ sessionId: IdentifierSchema, eventTitle:z.string().nullable(), completedAt:timestamp, cart:CartSchema });
 export const PAYMENTS_IPC_CONTRACTS = {
+ completeTeam: { channel:'payments:completeTeam',request:sessionRef,response:result(CheckoutViewSchema) },
+ listTeam: { channel:'payments:listTeam',request:empty,response:result(z.array(TeamBookingSchema).max(10000).readonly()) },
+  setTip: { channel: 'payments:setTip', request: z.strictObject({ sessionId: IdentifierSchema, expectedTipRappen: RappenSchema, tipRappen: RappenSchema }), response: result(CheckoutViewSchema) },
   startCheckout: { channel: 'payments:startCheckout', request: z.strictObject({ cartId: IdentifierSchema, expectedRevision: RevisionSchema }), response: result(CheckoutViewSchema) },
   getCheckout: { channel: 'payments:getCheckout', request: sessionRef, response: result(CheckoutViewSchema) },
   getActiveCheckout: { channel: 'payments:getActiveCheckout', request: empty, response: result(CheckoutViewSchema.nullable()) },
@@ -56,3 +60,5 @@ export type Refund = z.infer<typeof RefundSchema>;
 export type SaleDetails = z.infer<typeof SaleDetailsSchema>;
 export type ReconciliationCase = z.infer<typeof ReconciliationCaseSchema>;
 export type ReconciliationAction = z.infer<typeof ReconciliationActionSchema>;
+
+export type TeamBooking = z.infer<typeof TeamBookingSchema>;

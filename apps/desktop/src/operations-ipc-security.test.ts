@@ -11,7 +11,7 @@ const managementRequests: Record<ManagementMethod, unknown> = {
 };
 const filters = { dateFrom: null, dateTo: null, paymentMethod: 'all', minTotalRappen: null, maxTotalRappen: null, refundStatus: 'all', saleId: '', productQuery: '' };
 const sort = { field: 'date', direction: 'desc' };
-const historyRequests: Record<HistoryMethod, unknown> = { search: { filters, sort, page: 1, pageSize: 25 }, getSaleContext: { saleId: 'sale-security' } };
+const historyRequests: Record<HistoryMethod, unknown> = { previewRemoval: { scope: 'device', eventId: null }, removeHistory: { scope: 'device', eventId: null, operationId: 'purge-security', expectedVersion: 'a'.repeat(64), reason: 'Reset device history' }, getEvents: {}, removeSale: { saleId: 'sale-security', reason: 'Incorrect entry' }, search: { filters, sort, page: 1, pageSize: 25 }, getSaleContext: { saleId: 'sale-security' } };
 const rejected = { ok: false, error: { code: 'TEST_FAILURE', message: 'No operation was executed.' } } as const;
 const untrusted = [null, { ...trusted, webContentsId: 99 }, { ...trusted, frameProcessId: 99 }, { ...trusted, frameRoutingId: 99 }, { ...trusted, url: 'https://untrusted.invalid/' }];
 type UnknownContract = { request: RuntimeParser<unknown>; response: RuntimeParser<unknown> };

@@ -1,8 +1,14 @@
+import type { TeamBooking } from '@cash-sloth/contracts';
 import type { CheckoutAttempt, CheckoutSession, FinancialEvent, FinancialSale, PaymentAttempt, ReconciliationAction, Refund, RefundAttempt } from '@cash-sloth/domain';
 import type { PosStore } from './ports.js';
 
 /** All writes use the same synchronous transaction/connection as the existing POS store. */
 export interface FinanceStore {
+ hasTeamBooking?(sessionId:string):boolean;
+ recordTeamBooking?(session:CheckoutSession,completedAt:string):void;
+ listTeamBookings?():readonly TeamBooking[];
+  getEventId?(): string | null;
+  getEventTitle?(): string | null;
   readonly pos: PosStore;
   transaction<T>(operation: () => T): T;
   getSession(id: string): CheckoutSession | null;

@@ -1,3 +1,4 @@
+import { assertTicketUses } from './tickets.js';
 import { assertIdentifier, DomainError } from './models.js';
 import { assertRappen } from './money.js';
 
@@ -13,6 +14,7 @@ export interface ManagedVariant {
   readonly revision: number;
 }
 export interface ManagedProduct {
+  readonly ticketUses?: number | undefined;
   readonly id: string;
   readonly name: string;
   readonly description: string | null;
@@ -26,6 +28,7 @@ export interface ManagedProduct {
   readonly variants: readonly ManagedVariant[];
 }
 export interface Category {
+  readonly color?: string | null | undefined;
   readonly id: string;
   readonly name: string;
   readonly parentId: string | null;
@@ -81,6 +84,7 @@ export function validateManagedVariant(variant: ManagedVariant): void {
   if (normalizeSku(variant.sku) !== variant.sku || normalizeBarcode(variant.barcode) !== variant.barcode) throw new DomainError('INVALID_INPUT', 'Variant metadata must use its canonical form.');
 }
 export function validateManagedProduct(product: ManagedProduct): void {
+  assertTicketUses(product.ticketUses);
   assertIdentifier(product.id); assertCatalogName(product.name); assertRevision(product.revision);
   if (typeof product.active !== 'boolean') throw new DomainError('INVALID_INPUT', 'Invalid product status.');
   if (product.description !== null && (typeof product.description !== 'string' || product.description.length > 4000)) throw new DomainError('INVALID_INPUT', 'Description is too long.');
@@ -95,6 +99,7 @@ export function validateManagedProduct(product: ManagedProduct): void {
   if (product.primaryCategoryId !== null && !product.categoryIds.includes(product.primaryCategoryId)) throw new DomainError('INVALID_INPUT', 'The primary category must also be assigned.');
 }
 export function validateCategory(category: Category): void {
+  if (category.color != null && !/^#[0-9a-f]{6}$/iu.test(category.color)) throw new DomainError('INVALID_INPUT', 'Invalid category color.');
   assertIdentifier(category.id); assertCatalogName(category.name); assertRevision(category.revision); assertPosition(category.position);
   if (typeof category.active !== 'boolean') throw new DomainError('INVALID_INPUT', 'Invalid category status.');
   if (category.parentId !== null) assertIdentifier(category.parentId);

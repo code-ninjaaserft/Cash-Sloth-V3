@@ -1,0 +1,1 @@
+export const historyVisibilityMigration = { version: 10, name: 'history-visibility', sql: 'CREATE TABLE removed_history_sales (sale_id TEXT PRIMARY KEY NOT NULL, removed_at TEXT NOT NULL, reason TEXT NOT NULL) STRICT;' } as const;

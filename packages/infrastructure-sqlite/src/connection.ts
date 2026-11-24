@@ -1,14 +1,16 @@
+import type { TicketMode } from '@cash-sloth/domain';
 import { DatabaseSync } from 'node:sqlite';
 import { drizzle, type NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 
 export interface DatabaseConnection {
+  readonly ticketMode?: TicketMode;
   readonly sqlite: DatabaseSync;
   readonly db: NodeSQLiteDatabase;
   close(): void;
 }
 
 /** Open a host-owned database. Callers create and select the environment directory. */
-export function openDatabase(path: string): DatabaseConnection {
+export function openDatabase(path: string, options: { ticketMode?: TicketMode } = {}): DatabaseConnection {
   const sqlite = new DatabaseSync(path, {
     enableForeignKeyConstraints: true,
     allowExtension: false,
@@ -32,6 +34,7 @@ export function openDatabase(path: string): DatabaseConnection {
     const db = drizzle({ client: sqlite, logger: false, paramsInErrors: false });
     let closed = false;
     return {
+      ticketMode: options.ticketMode ?? 'normal',
       sqlite,
       db,
       close() {

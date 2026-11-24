@@ -1,3 +1,13 @@
+import { promotionsMigration } from './migrations/0016-promotions.js';
+import { teamTicketControlsMigration } from './migrations/0015-team-ticket-controls.js';
+import { ticketsMigration } from './migrations/0014-tickets.js';
+import { historyBulkRemovalMigration } from './migrations/0013-history-bulk-removal.js';
+import { salePurgeMigration } from './migrations/0012-explicit-sale-purge.js';
+import { checkoutTipsMigration } from './migrations/0011-checkout-tips.js';
+import { historyVisibilityMigration } from './migrations/0010-history-visibility.js';
+import { variantLifecycleMigration } from './migrations/0009-variant-lifecycle.js';
+import { catalogLifecycleMigration } from './migrations/0008-catalog-lifecycle.js';
+import { eventPresetsMigration } from './migrations/0007-event-presets.js';
 import { createHash } from 'node:crypto';
 import type { DatabaseConnection } from './connection.js';
 import { firstSaleMigration } from './migrations/0001-first-sale.js';
@@ -6,7 +16,9 @@ import { paymentsRefundsMigration } from './migrations/0003-payments-refunds.js'
 import { managementImportMigration } from './migrations/0004-management-import.js';
 import { salesHistoryIndexesMigration } from './migrations/0005-sales-history-indexes.js';
 
-export const migrations = [firstSaleMigration, catalogManagementMigration, paymentsRefundsMigration, managementImportMigration, salesHistoryIndexesMigration] as const;
+import { categoryColorsMigration } from './migrations/0006-category-colors.js';
+
+export const migrations = [firstSaleMigration, catalogManagementMigration, paymentsRefundsMigration, managementImportMigration, salesHistoryIndexesMigration, categoryColorsMigration, eventPresetsMigration, catalogLifecycleMigration, variantLifecycleMigration, historyVisibilityMigration, checkoutTipsMigration, salePurgeMigration, historyBulkRemovalMigration, ticketsMigration, teamTicketControlsMigration, promotionsMigration] as const;
 
 /** Additive, versioned migration ledger. Never infer a schema by deleting data. */
 export function runMigrations(connection: DatabaseConnection): void {

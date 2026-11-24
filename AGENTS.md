@@ -29,7 +29,10 @@ integrity take priority over delivery speed.
   and numeric bounds; never use floating-point currency arithmetic.
 - Snapshot unit prices when cart items are added. Preserve separate lines when
   historical prices differ. Completed sales are immutable and retain historical
-  financial snapshots; refunds create separate auditable records.
+  financial snapshots; refunds create separate auditable records. The explicitly
+  requested removal of sales, an event history or the full device history may
+  permanently purge linked records through the scoped, transactional history deletion service; ordinary writes
+  must retain the existing immutability guards.
 - Apply Swiss CHF 0.05 cash rounding only to the remaining cash portion after
   exact digital payments have been accounted for. Keep this calculation shared.
 - Make critical sale and refund operations transactional and idempotent. Report

@@ -41,6 +41,7 @@ test('cash sale survives draft restart, duplicate confirmation and application r
     await expect(page.getByRole('spinbutton', { name: 'Quantity for Chocolate' })).toHaveValue('1');
     await expect(page.getByTestId('cart-subtotal')).toContainText('CHF 2.47');
     await page.getByRole('button', { name: 'Checkout', exact: true }).click();
+    await page.getByRole('button', { name: 'More payment options', exact: true }).click();
     await page.getByRole('textbox', { name: 'Cash received (CHF)', exact: true }).fill('2.00');
     await expect(page.getByTestId('cash-change')).toContainText('CHF 0.45');
     await expect(page.getByRole('button', { name: 'Complete sale', exact: true })).toBeDisabled();

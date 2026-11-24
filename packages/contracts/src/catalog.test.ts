@@ -9,7 +9,7 @@ describe('catalog contracts', () => {
     expect(contract.response.safeParse({ ok: false, error: { code: 'CONFLICT', message: 'Reload.' } }).success).toBe(true);
   });
   it('requires first-variant pricing and revision-aware editing', () => {
-    const fields = { name: 'Coffee', description: null, imageReference: null, active: true, categoryIds: [], primaryCategoryId: null };
+    const fields = { name: 'Coffee', description: null, imageReference: null, active: true, categoryIds: ['category-test'], primaryCategoryId: null };
     expect(CATALOG_IPC_CONTRACTS.createProduct.request.safeParse(fields).success).toBe(false);
     const variant = { name: 'Default', unitPriceRappen: 247, sku: null, barcode: null, active: true, position: 0 };
     expect(CATALOG_IPC_CONTRACTS.createProduct.request.safeParse({ ...fields, firstVariant: variant }).success).toBe(true);
@@ -18,6 +18,6 @@ describe('catalog contracts', () => {
   });
   it('preserves legacy stored names while enforcing clean new input names', () => {
     expect(CATALOG_IPC_CONTRACTS.createCategory.request.safeParse({ name: ' Parent ', parentId: null, active: true, position: 0 }).success).toBe(false);
-    expect(ManagedProductSchema.safeParse({ id: 'p', name: ' Parent ', description: null, imageReference: null, active: true, createdAt: '2026-11-12T12:00:00.000Z', updatedAt: '2026-11-12T12:00:00.000Z', revision: 0, categoryIds: [], primaryCategoryId: null, variants: [{ id: 'v', productId: 'p', name: ' Default ', unitPriceRappen: 1, sku: null, barcode: null, active: true, position: 0, revision: 0 }] }).success).toBe(true);
+    expect(ManagedProductSchema.safeParse({ id: 'p', name: ' Parent ', description: null, imageReference: null, active: true, createdAt: '2026-11-12T12:00:00.000Z', updatedAt: '2026-11-12T12:00:00.000Z', revision: 0, categoryIds: ['category-test'], primaryCategoryId: null, variants: [{ id: 'v', productId: 'p', name: ' Default ', unitPriceRappen: 1, sku: null, barcode: null, active: true, position: 0, revision: 0 }] }).success).toBe(true);
   });
 });

@@ -1,16 +1,22 @@
+import { t } from './preferences.js';
 import React, { useId, useLayoutEffect, useReducer, useRef } from 'react';
 import { initialNavigationOverlay, navigationOverlayReducer, transitionMilliseconds } from './application-navigation-state.js';
 
-export type ApplicationView = 'pos' | 'catalog' | 'import' | 'sales' | 'reconciliation' | 'system' | 'development';
+export type ApplicationView = 'pos' | 'catalog' | 'import' | 'sales' | 'reconciliation' | 'system' | 'development' | 'settings' | 'presets' | 'tickets' | 'team' | 'promotions';
 
 const views: readonly { id: ApplicationView; label: string }[] = [
   { id: 'pos', label: 'POS' },
   { id: 'catalog', label: 'Catalog' },
+  { id: 'promotions', label:'Vouchers & discounts' },
+  { id: 'presets', label: 'Presets' },
+  { id: 'team', label: 'Team consumption' },
+  { id: 'tickets', label: 'Redeem tickets' },
   { id: 'import', label: 'Import' },
   { id: 'sales', label: 'Sales history' },
   { id: 'reconciliation', label: 'Reconciliation' },
   { id: 'system', label: 'System status' },
   { id: 'development', label: 'Development tools' },
+  { id: 'settings', label: 'Settings' },
 ];
 
 /** A non-modal overlay: only the category controls it covers are made inert. */
@@ -125,12 +131,12 @@ export function ApplicationNavigation({ view, onNavigate, expanded, onExpandedCh
       if (state.phase === 'closing' && !expanded) dispatch({ type: 'finish-close', cycle: state.cycle });
       else if (state.phase === 'open' && expanded && !state.entriesReady) dispatch({ type: 'finish-open', cycle: state.cycle });
     }} />
-    <button ref={toggle} type="button" className="application-nav-toggle" aria-label={`${expanded ? 'Collapse' : 'Expand'} application navigation`} aria-expanded={expanded} aria-controls={panelId} onClick={() => onExpandedChange(!expanded)}>
+    <button ref={toggle} type="button" className="application-nav-toggle" aria-label={`${expanded ? t("Collapse") : t("Expand")} application navigation`} aria-expanded={expanded} aria-controls={panelId} onClick={() => onExpandedChange(!expanded)}>
       <span className="hamburger-icon" aria-hidden="true"><span className="hamburger-line" /><span className="hamburger-line" /><span className="hamburger-line" /></span>
     </button>
-    <div className="application-nav-content"><nav ref={entries} id={panelId} className="pos-nav" aria-label="Application navigation" aria-hidden={!expanded || !state.entriesReady} inert={!expanded || !state.entriesReady}>
-      {views.filter((entry) => entry.id !== 'development' || developmentAllowed).map((entry) => <button key={entry.id} type="button" aria-current={view === entry.id ? 'page' : undefined} onClick={() => { close(); onNavigate(entry.id); }}>{entry.label}</button>)}
-      <button type="button" disabled>Settings <small>(coming later)</small></button>
+    <div className="application-nav-content"><nav ref={entries} id={panelId} className="pos-nav" aria-label={t("Application navigation")} aria-hidden={!expanded || !state.entriesReady} inert={!expanded || !state.entriesReady}>
+      {views.filter((entry) => entry.id !== 'development' || developmentAllowed).map((entry) => <button key={entry.id} type="button" aria-current={view === entry.id ? 'page' : undefined} onClick={() => { close(); onNavigate(entry.id); }}>{t(entry.label)}</button>)}
+
     </nav></div>
   </div>;
 }

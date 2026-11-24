@@ -35,6 +35,7 @@ test('managed variants and category search preserve price snapshots through a sa
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await page.getByRole('button', { name: 'New product', exact: true }).click();
     await page.getByLabel('Product name', { exact: true }).fill('Alpine tea');
+    await page.getByLabel('Product category', { exact: true }).selectOption({ label: 'Drinks' });
     await page.getByLabel('Description', { exact: true }).fill('Catalog and snapshot smoke fixture');
     await page.getByLabel('First variant name', { exact: true }).fill('Small');
     await page.getByLabel('Price (CHF)', { exact: true }).fill('3.33');
@@ -99,6 +100,7 @@ test('managed variants and category search preserve price snapshots through a sa
       .toEqual([['Small', 333, 2], ['Large', 555, 1], ['Small', 444, 1]]);
     await page.screenshot({ path: 'test-results/mvp-0.2-pos.png', fullPage: true, animations: 'disabled' });
     await page.getByRole('button', { name: 'Checkout', exact: true }).click();
+    await page.getByRole('button', { name: 'More payment options', exact: true }).click();
     await page.getByRole('textbox', { name: 'Cash received (CHF)', exact: true }).fill('20.00');
     await page.getByRole('checkbox', { name: 'I confirm that the cash was received', exact: true }).check();
     await page.getByRole('button', { name: 'Complete sale', exact: true }).click();

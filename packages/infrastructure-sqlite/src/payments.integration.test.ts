@@ -87,6 +87,54 @@ describe('payment and refund persistence', () => {
     seedDevelopmentCatalog(connection, 'development');
   }
 
+  it.each(['cash', 'card', 'twint'] as const)('stores %s tips separately, preserves change and refunds merchandise without the tip', (method) => {
+    let view = checkout(247);
+    const tipRappen = method === 'cash' ? 255 : 253;
+    view = value(payments.setTip({ sessionId: view.session.id, expectedTipRappen: 0, tipRappen }));
+    expect(view.balance.subtotalRappen).toBe(247);
+    expect(value(payments.setTip({ sessionId: view.session.id, expectedTipRappen: 0, tipRappen })).session.tipRappen).toBe(tipRappen);
+    expect(payments.setTip({ sessionId: view.session.id, expectedTipRappen: 0, tipRappen: 100 })).toMatchObject({ ok: false, error: { code: 'CONFLICT' } });
+    reopen(); view = value(payments.getCheckout({ sessionId: view.session.id })); expect(view.session.tipRappen).toBe(tipRappen);
+    const attempt = prepare(view, method, method === 'cash' ? 1000 : 500);
+    expect(payments.setTip({ sessionId: view.session.id, expectedTipRappen: tipRappen, tipRappen: 0 })).toMatchObject({ ok: false, error: { code: 'PAYMENT_PENDING' } });
+    if (method === 'cash') expect(attempt).toMatchObject({ appliedRappen: 500, changeRappen: 500, roundingAdjustmentRappen: -2 });
+    value(payments.confirmPayment({ attemptId: attempt.id, operatorConfirmed: true }));
+    const sale = value(payments.completeCheckout({ sessionId: view.session.id }));
+    expect(sale).toMatchObject({ tipRappen, actualPaidRappen: 500, subtotalRappen: 247 });
+    expect(value(payments.completeCheckout({ sessionId: view.session.id }))).toEqual(sale);
+    expect(() => connection.sqlite.prepare('UPDATE financial_sales SET data=data WHERE id=?').run(sale.id)).toThrow();
+    const repayment = refund(sale, 1, method);
+    expect(repayment.amountRappen).toBe(method === 'cash' ? 245 : 247);
+    value(payments.confirmRefund({ attemptId: repayment.id, operatorConfirmed: true }));
+    expect(value(payments.getSaleDetails({ saleId: sale.id })).refundableRappen).toBe(0);
+    reopen(); expect(value(payments.getSaleDetails({ saleId: sale.id })).sale).toEqual(sale);
+  });
+
+  it('keeps mixed-payment tips separate from successive merchandise refunds', () => {
+    let view = checkout(842, 2);
+    view = value(payments.setTip({ sessionId: view.session.id, expectedTipRappen: 0, tipRappen: 315 }));
+    view = confirm(view, 'twint', 500); view = confirm(view, 'card', 500); view = confirm(view, 'cash', 1000);
+    const sale = value(payments.completeCheckout({ sessionId: view.session.id }));
+    expect(sale).toMatchObject({ tipRappen: 315, subtotalRappen: 1684, actualPaidRappen: 2000, roundingAdjustmentRappen: 1 });
+    const first = refund(sale, 1, 'card'); expect(first.amountRappen).toBe(842);
+    value(payments.confirmRefund({ attemptId: first.id, operatorConfirmed: true }));
+    const second = refund(sale, 1, 'twint'); expect(second.amountRappen).toBe(843);
+    value(payments.confirmRefund({ attemptId: second.id, operatorConfirmed: true }));
+    expect(value(payments.getSaleDetails({ saleId: sale.id }))).toMatchObject({ refundedRappen: 1685, refundableRappen: 0 });
+  });
+
+  it('permits tip changes before payment but rejects invalid amounts and rolls back a failed update', () => {
+    const view = checkout(); const request = { sessionId: view.session.id, expectedTipRappen: 0, tipRappen: 100 };
+    expect(payments.setTip({ ...request, tipRappen: -1 })).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+    expect(payments.setTip({ ...request, tipRappen: Number.MAX_SAFE_INTEGER })).toMatchObject({ ok: false, error: { code: 'OVERFLOW' } });
+    connection.sqlite.exec("CREATE TEMP TRIGGER fail_tip BEFORE UPDATE ON payment_sessions BEGIN SELECT RAISE(ABORT, 'Injected failure'); END");
+    expect(payments.setTip(request).ok).toBe(false);
+    expect(value(payments.getCheckout({ sessionId: view.session.id })).session.tipRappen ?? 0).toBe(0);
+    connection.sqlite.exec('DROP TRIGGER fail_tip');
+    value(payments.setTip(request)); value(payments.setTip({ ...request, expectedTipRappen: 100, tipRappen: 0 }));
+    expect(value(payments.getCheckout({ sessionId: view.session.id })).balance.outstandingRappen).toBe(247);
+  });
+
   it('upgrades populated version-two sales, payments and historical cart snapshots without rewriting them', () => {
     versionTwoDatabase();
     const pos = createPosService(createPosStore(connection), runtime);

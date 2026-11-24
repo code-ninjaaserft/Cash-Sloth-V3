@@ -48,7 +48,7 @@ describe('catalog management on real SQLite storage', () => {
   const reopen = (): void => { connection.close(); connection = openDatabase(databaseFile); runMigrations(connection); bind(); };
   const create = (name = 'Managed chocolate', sku: string | null = null, barcode: string | null = null): ManagedProduct => value(catalog.createProduct({
     name, description: 'Catalog test product', imageReference: null, active: true,
-    categoryIds: [], primaryCategoryId: null, firstVariant: { ...firstVariant, sku, barcode },
+    categoryIds: [category('Creation category').id], primaryCategoryId: null, firstVariant: { ...firstVariant, sku, barcode },
   }));
   const category = (name: string, parentId: string | null = null): Category => value(catalog.createCategory({ name, parentId, active: true, position: 0 }));
 
@@ -130,11 +130,11 @@ describe('catalog management on real SQLite storage', () => {
     initialize();
     create('First', ' sku-a ', 'ABC');
     expect(catalog.createProduct({
-      name: 'Duplicate SKU', description: null, active: true, imageReference: null, categoryIds: [], primaryCategoryId: null,
+      name: 'Duplicate SKU', description: null, active: true, imageReference: null, categoryIds: [category('Creation category').id], primaryCategoryId: null,
       firstVariant: { ...firstVariant, sku: 'sKu-A' },
     })).toMatchObject({ ok: false, error: { code: 'DUPLICATE_SKU' } });
     expect(catalog.createProduct({
-      name: 'Duplicate barcode', description: null, active: true, imageReference: null, categoryIds: [], primaryCategoryId: null,
+      name: 'Duplicate barcode', description: null, active: true, imageReference: null, categoryIds: [category('Creation category').id], primaryCategoryId: null,
       firstVariant: { ...firstVariant, barcode: ' ABC ' },
     })).toMatchObject({ ok: false, error: { code: 'DUPLICATE_BARCODE' } });
     create('Lowercase barcode', null, 'abc');
@@ -148,7 +148,7 @@ describe('catalog management on real SQLite storage', () => {
     initialize();
     let product = value(catalog.createProduct({
       name: 'Ordered variants', description: null, imageReference: null, active: true,
-      categoryIds: [], primaryCategoryId: null, firstVariant: { ...firstVariant, name: 'a' },
+      categoryIds: [category('Creation category').id], primaryCategoryId: null, firstVariant: { ...firstVariant, name: 'a' },
     }));
     for (const name of ['B', 'Á']) product = value(catalog.createVariant({
       productId: product.id, expectedProductRevision: product.revision, ...firstVariant, name,
@@ -341,5 +341,27 @@ describe('catalog management on real SQLite storage', () => {
       finally { isolated.close(); }
     }
     expect(createCatalogStore(connection).listProducts()).toHaveLength(3);
+  });
+
+  it('upgrades existing categories additively and keeps chosen colors across restarts and revisions', () => {
+    connection.sqlite.exec('CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL UNIQUE, checksum TEXT NOT NULL, applied_at TEXT NOT NULL) STRICT');
+    for (const migration of migrations.slice(0, 5)) {
+      connection.sqlite.exec(migration.sql);
+      connection.sqlite.prepare('INSERT INTO schema_migrations VALUES (?, ?, ?, ?)').run(migration.version, migration.name, createHash('sha256').update(migration.sql).digest('hex'), runtime.now());
+    }
+    connection.sqlite.prepare('INSERT INTO categories VALUES (?, ?, ?, ?, ?, ?)').run('old-category', 'Existing category', null, 1, 0, 0);
+    runMigrations(connection); bind();
+    expect(value(catalog.listCategories({ includeInactive: true }))[0]).toMatchObject({ id: 'old-category', color: null });
+    const colored = value(catalog.createCategory({ name: 'Yellow products', parentId: null, active: true, position: 1, color: '#ffff00' }));
+    const product = create();
+    value(catalog.assignCategories({ productId: product.id, expectedRevision: product.revision, categoryIds: [colored.id], primaryCategoryId: colored.id }));
+    reopen();
+    expect(value(catalog.listCategories({ includeInactive: true })).find((entry) => entry.id === colored.id)?.color).toBe('#ffff00');
+    const changed = value(catalog.updateCategory({ categoryId: colored.id, expectedRevision: 0, name: colored.name, parentId: null, active: true, position: 1, color: '#ff0000' }));
+    expect(changed.color).toBe('#ff0000');
+    expect(catalog.updateCategory({ categoryId: colored.id, expectedRevision: 0, name: colored.name, parentId: null, active: true, position: 1, color: '#0000ff' })).toMatchObject({ ok: false, error: { code: 'CONFLICT' } });
+    expect(catalog.createCategory({ name: 'Invalid', parentId: null, active: true, position: 1, color: 'red' })).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+    expect(() => connection.sqlite.prepare('UPDATE categories SET color = ? WHERE id = ?').run('#oops!!', colored.id)).toThrow();
+    expect(value(catalog.getProduct({ productId: product.id })).primaryCategoryId).toBe(colored.id);
   });
 });

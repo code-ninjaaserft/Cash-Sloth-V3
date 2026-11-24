@@ -38,12 +38,12 @@ class MemoryCatalogStore implements CatalogStore {
   }
 }
 const createRequest = (): CatalogRequest<'createProduct'> => ({
-  name: 'Coffee', description: 'Fresh coffee', active: true, imageReference: null, categoryIds: [], primaryCategoryId: null,
+  name: 'Coffee', description: 'Fresh coffee', active: true, imageReference: null, categoryIds: ['creation-category'], primaryCategoryId: 'creation-category',
   firstVariant: { name: 'Small', unitPriceRappen: 247, sku: ' coffee-s ', barcode: 'AbC', active: true, position: 10 },
 });
 function unwrap<T>(result: Result<T>): T { if (!result.ok) throw new Error(result.error.message); return result.value; }
 function fixture(): { store: MemoryCatalogStore; service: CatalogService; product: ManagedProduct } {
-  const store = new MemoryCatalogStore(); let sequence = 0;
+  const store = new MemoryCatalogStore(); store.categories.push({ id: 'creation-category', name: 'Creation category', parentId: null, active: true, position: 0, revision: 0 }); let sequence = 0;
   const service = createCatalogService(store, { newId: () => `catalog-${++sequence}`, now: () => '2026-11-12T12:00:00.000Z' });
   return { store, service, product: unwrap(service.createProduct(createRequest())) };
 }
@@ -106,7 +106,7 @@ describe('catalog application use cases', () => {
     const child = unwrap(service.createCategory({ name: 'Coffee', parentId: root.id, active: true, position: 0 }));
     const assigned = unwrap(service.assignCategories({ productId: product.id, expectedRevision: 0, categoryIds: [root.id, child.id], primaryCategoryId: child.id }));
     expect(assigned.revision).toBe(1);
-    expect(unwrap(service.listCategories({ includeInactive: false })).map((category) => category.productCount)).toEqual([1, 1]);
+    expect(unwrap(service.listCategories({ includeInactive: false })).filter((category) => category.id !== 'creation-category').map((category) => category.productCount)).toEqual([1, 1]);
     expect(unwrap(service.listProducts({ query: '', categoryId: root.id, restrictToCategory: false, includeInactive: false }))).toHaveLength(1);
     expect(service.assignCategories({ productId: product.id, expectedRevision: 1, categoryIds: [root.id], primaryCategoryId: child.id })).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
     expect(service.assignCategories({ productId: product.id, expectedRevision: 1, categoryIds: ['missing'], primaryCategoryId: null })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });

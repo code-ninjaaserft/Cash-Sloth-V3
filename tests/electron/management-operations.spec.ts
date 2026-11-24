@@ -77,6 +77,7 @@ test('explicit Swiss demo load, mixed rounding sale, partial refund and filtered
     await quantity.fill('2'); await quantity.press('Tab');
     await expect(page.getByTestId('cart-subtotal')).toHaveText('CHF 4.84');
     await page.getByRole('button', { name: 'Checkout', exact: true }).click();
+    await page.getByRole('button', { name: 'More payment options', exact: true }).click();
     await page.getByRole('button', { name: 'TWINT', exact: true }).click();
     await page.getByRole('textbox', { name: 'Payment amount (CHF)', exact: true }).fill('2.00');
     await page.getByRole('button', { name: 'Review payment', exact: true }).click();
@@ -177,6 +178,7 @@ test('native CSV selection, mapped variants and rejected conflicts preserve impo
     await page.getByRole('button', { name: 'Choose CSV Demo Coffee', exact: true }).click();
     await page.getByRole('button', { name: 'Add CSV Demo Coffee — Large', exact: true }).click();
     await page.getByRole('button', { name: 'Checkout', exact: true }).click();
+    await page.getByRole('button', { name: 'More payment options', exact: true }).click();
     await page.getByRole('textbox', { name: 'Cash received (CHF)', exact: true }).fill('10.00');
     await page.getByRole('checkbox', { name: 'I confirm that the cash was received', exact: true }).check();
     await page.getByRole('button', { name: 'Complete sale', exact: true }).click();

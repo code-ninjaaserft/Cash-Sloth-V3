@@ -17,6 +17,7 @@ export function assertIdentifier(value: string): void {
 export interface Product { readonly id: ProductId; readonly name: string; readonly active: boolean }
 export interface ProductVariant { readonly id: VariantId; readonly productId: ProductId; readonly name: string; readonly unitPriceRappen: number; readonly active: boolean }
 export interface CatalogItem {
+  readonly ticketUses?: number | undefined;
   readonly productId: ProductId;
   readonly variantId: VariantId;
   readonly productName: string;
@@ -26,6 +27,9 @@ export interface CatalogItem {
   readonly active: boolean;
 }
 export interface CartItem {
+  readonly originalUnitPriceRappen?:number|undefined;
+  readonly discountLabel?:string|undefined;
+  readonly ticketUses?: number | undefined;
   readonly id: CartItemId;
   readonly productId: ProductId;
   readonly variantId: VariantId;

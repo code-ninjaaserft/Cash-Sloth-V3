@@ -3,6 +3,9 @@ import type { PosRuntime } from './ports.js';
 
 export type CatalogRuntime = PosRuntime;
 export interface CatalogStore {
+  removeVariant?(productId: string, variantId: string, expectedProductRevision: number, expectedRevision: number, updatedAt: string): void;
+  removeProduct?(id: string, expectedRevision: number, updatedAt: string): void;
+  removeCategory?(id: string, expectedRevision: number, updatedAt: string): void;
   transaction<T>(operation: () => T): T;
   listProducts(): readonly ManagedProduct[];
   getProduct(productId: string): ManagedProduct | null;

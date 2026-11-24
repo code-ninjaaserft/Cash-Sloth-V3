@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { purgeSale } from './purge-sale.js';
 import { DomainError, addMoney, assertFinancialTimestamp, validateFinancialSale, validateRefundHistory } from '@cash-sloth/domain';
 import type { HistoryExportRecord, HistoryStore, NormalizedHistoryFilters } from '@cash-sloth/application';
 import { HistoryFiltersSchema, HistorySortSchema, SaleHistoryEntrySchema, SaleHistoryContextSchema, type HistorySort, type SaleHistoryContext, type SaleHistoryEntry } from '@cash-sloth/contracts';
@@ -49,6 +51,11 @@ function where(filters: NormalizedHistoryFilters): { sql: string; parameters: Pa
   if (toExclusive !== null) assertFinancialTimestamp(toExclusive);
   const conditions: string[] = []; const parameters: Parameters = [];
   const add = (sql: string, value: string | number) => { conditions.push(sql); parameters.push(value); };
+  if (!filters.includeRemoved) conditions.push('NOT EXISTS (SELECT 1 FROM removed_history_sales r WHERE r.sale_id=h.id)');
+  if (filters.scope === 'event') {
+    if (filters.eventId == null) conditions.push("json_extract(h.data, '$.eventId') IS NULL");
+    else add("json_extract(h.data, '$.eventId') = ?", filters.eventId);
+  }
   if (fromInclusive !== null) add('h.completed_at >= ?', fromInclusive);
   if (toExclusive !== null) add('h.completed_at < ?', toExclusive);
   if (filters.paymentMethod !== 'all') add('h.payment_method = ?', filters.paymentMethod);
@@ -96,14 +103,57 @@ export function createHistoryStore(connection: DatabaseConnection): HistoryStore
     const summary = sale.items.map((item) => `${item.quantity} × ${item.productName} — ${item.variantName}`).join('; ');
     const refundedRappen = integer(row, 'refunded_rappen');
     if (refundedRappen > sale.actualPaidRappen) throw new Error('Persisted refund total exceeds actual payment.');
-    return SaleHistoryEntrySchema.parse({ id: sale.id, completedAt: sale.completedAt, subtotalRappen: sale.subtotalRappen,
+    const removal = sqlite.prepare('SELECT removed_at,reason FROM removed_history_sales WHERE sale_id=?').get(sale.id);
+    return SaleHistoryEntrySchema.parse({ tipRappen: sale.tipRappen ?? 0, eventId: sale.eventId ?? null, eventTitle: sale.eventTitle ?? null,
+      removedAt: removal?.['removed_at'] ?? null, removalReason: removal?.['reason'] ?? null,
+      id: sale.id, completedAt: sale.completedAt, subtotalRappen: sale.subtotalRappen,
       roundingAdjustmentRappen: sale.roundingAdjustmentRappen, actualPaidRappen: sale.actualPaidRappen,
-      refundedRappen, refundableRappen: sale.actualPaidRappen - refundedRappen,
+      refundedRappen, refundableRappen: sale.actualPaidRappen - (sale.tipRappen ?? 0) - refundedRappen,
       paymentMethod: row['payment_method'], refundStatus: row['refund_status'], itemSummary: summary.slice(0, 1000), source: sale.source, ...contextWithoutDate(context) });
   };
   function contextWithoutDate(context: SaleHistoryContext) { return { unresolvedRefundCount: context.unresolvedRefundCount, reconciliationCount: context.reconciliationCount }; }
-  return {
+  const removalIds = (scope: 'event' | 'device', eventId: string | null): string[] => {
+    const query = scope === 'device' ? 'SELECT id FROM financial_sales UNION ALL SELECT id FROM sales WHERE sealed=1 ORDER BY id'
+      : eventId === null ? "SELECT id FROM financial_sales WHERE json_extract(data,'$.eventId') IS NULL UNION ALL SELECT id FROM sales WHERE sealed=1 ORDER BY id"
+      : "SELECT id FROM financial_sales WHERE json_extract(data,'$.eventId')=? ORDER BY id";
+    return sqlite.prepare(query).all(...(scope === 'event' && eventId !== null ? [eventId] : [])).map((row) => text(row, 'id'));
+  };
+  const removalPreview = (scope: 'event' | 'device', eventId: string | null) => { const ids = removalIds(scope, eventId); return { count: ids.length, version: createHash('sha256').update(JSON.stringify({ scope, eventId, ids })).digest('hex') }; };
+  const store: HistoryStore = {
     transaction,
+    previewRemoval: (scope, eventId) => snapshot(() => removalPreview(scope, eventId)),
+    removeHistory(input, at) {
+      if (!sqlite.isTransaction) throw new Error('History deletion requires a transaction.');
+      const canonical = JSON.stringify({ scope: input.scope, eventId: input.eventId, expectedVersion: input.expectedVersion, reason: input.reason.trim() });
+      const previous = sqlite.prepare('SELECT request,removed_count FROM history_purge_operations WHERE id=?').get(input.operationId);
+      if (previous) { if (previous['request'] !== canonical) throw new DomainError('CONFLICT', 'This deletion reference belongs to another request.'); return { removedCount: integer(previous, 'removed_count') }; }
+      const preview = removalPreview(input.scope, input.eventId);
+      if (preview.version !== input.expectedVersion) throw new DomainError('CONFLICT', 'The history changed. Close this dialog and review the deletion again.');
+      for (const id of removalIds(input.scope, input.eventId)) { if (!store.removeSale) throw new Error('Missing sale deletion.'); store.removeSale(id, input.reason, at); }
+      sqlite.prepare('INSERT INTO history_purge_operations VALUES(?,?,?)').run(input.operationId, canonical, preview.count);
+      return { removedCount: preview.count };
+    },
+    getEvents() {
+      return snapshot(() => {
+        const events = new Map<string, string>();
+        for (const row of sqlite.prepare("SELECT json_extract(data,'$.eventId') id, json_extract(data,'$.eventTitle') title FROM financial_sales WHERE json_extract(data,'$.eventId') IS NOT NULL ORDER BY completed_at,id").all()) {
+          events.set(text(row, 'id'), typeof row['title'] === 'string' ? row['title'] : text(row, 'id'));
+        }
+        for (const row of sqlite.prepare("SELECT id,json_extract(data,'$.name') title FROM event_presets WHERE id NOT IN (SELECT preset_id FROM removed_event_presets)").all()) events.set(text(row, 'id'), text(row, 'title'));
+        return { activeEventId: finance.getEventId?.() ?? null, events: [...events].map(([id, title]) => ({ id, title })).sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id)) };
+      });
+    },
+    removeSale(saleId, reason, at) {
+      if (!sqlite.isTransaction) throw new Error('History removal requires a transaction.');
+      const sale = finance.getFinancialSale(saleId);
+      if (!sale) {
+        if (sqlite.prepare('SELECT 1 FROM removed_history_sales WHERE sale_id=?').get(saleId)) return;
+        throw new DomainError('NOT_FOUND', 'Sale not found.');
+      }
+      if (contexts(sale.id, sale.checkoutSessionId, sale.source).unresolvedRefundCount > 0) throw new DomainError('REFUND_PENDING', 'Resolve the pending refund before removing this sale from history.');
+      sqlite.prepare('INSERT INTO removed_history_sales VALUES(?,?,?) ON CONFLICT DO NOTHING').run(saleId, at, reason);
+      purgeSale(connection, sale);
+    },
     search(filters, sort, page, pageSize) {
       return snapshot(() => {
         if (!Number.isSafeInteger(page) || page < 1 || page > 1_000_000 || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100) throw new DomainError('INVALID_INPUT', 'Invalid history pagination.');
@@ -131,9 +181,11 @@ export function createHistoryStore(connection: DatabaseConnection): HistoryStore
           const sale = finance.getFinancialSale(text(row, 'id')); if (sale === null) throw new Error('Missing export sale.');
           const refunds = finance.listRefunds(sale.id); validateRefundHistory(sale, refunds);
           if (refunds.reduce((sum, refund) => addMoney(sum, refund.amountRappen), 0) !== integer(row, 'refunded_rappen')) throw new Error('Refund snapshot changed inside export transaction.');
-          return { sale, refunds, context: contexts(sale.id, sale.checkoutSessionId, sale.source) };
+          const removal = sqlite.prepare('SELECT removed_at,reason FROM removed_history_sales WHERE sale_id=?').get(sale.id);
+          return { removedAt: removal ? text(removal, 'removed_at') : null, removalReason: removal ? text(removal, 'reason') : null, sale, refunds, context: contexts(sale.id, sale.checkoutSessionId, sale.source) };
         });
       });
     },
   };
+  return store;
 }

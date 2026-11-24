@@ -2,8 +2,12 @@ import type { FinancialSale, Refund } from '@cash-sloth/domain';
 import type { HistoryFilters, HistoryPage, HistorySort, SaleHistoryContext } from '@cash-sloth/contracts';
 
 export interface NormalizedHistoryFilters extends Omit<HistoryFilters, 'dateFrom' | 'dateTo'> { readonly fromInclusive: string | null; readonly toExclusive: string | null }
-export interface HistoryExportRecord { readonly sale: FinancialSale; readonly refunds: readonly Refund[]; readonly context: SaleHistoryContext }
+export interface HistoryExportRecord { readonly removedAt?: string | null; readonly removalReason?: string | null; readonly sale: FinancialSale; readonly refunds: readonly Refund[]; readonly context: SaleHistoryContext }
 export interface HistoryStore {
+  previewRemoval?(scope: 'event' | 'device', eventId: string | null): { count: number; version: string };
+  removeHistory?(input: { scope: 'event' | 'device'; eventId: string | null; operationId: string; expectedVersion: string; reason: string }, at: string): { removedCount: number };
+  getEvents?(): { activeEventId: string | null; events: readonly { id: string; title: string }[] };
+  removeSale?(saleId: string, reason: string, at: string): void;
   transaction<T>(operation: () => T): T;
   search(filters: NormalizedHistoryFilters, sort: HistorySort, page: number, pageSize: number): HistoryPage;
   getSaleContext(saleId: string): SaleHistoryContext | null;

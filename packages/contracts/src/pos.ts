@@ -6,8 +6,8 @@ export const RevisionSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGE
 const quantity = z.number().int().min(1).max(9999);
 const name = z.string().min(1).max(200).refine((value) => value.trim().length > 0);
 const timestamp = z.iso.datetime();
-export const CatalogItemSchema = z.strictObject({ productId: IdentifierSchema, variantId: IdentifierSchema, productName: name, variantName: name, unitPriceRappen: RappenSchema, productActive: z.boolean(), active: z.boolean() });
-export const CartItemSchema = z.strictObject({ id: IdentifierSchema, productId: IdentifierSchema, variantId: IdentifierSchema, productName: name, variantName: name, unitPriceRappen: RappenSchema, quantity, lineTotalRappen: RappenSchema });
+export const CatalogItemSchema = z.strictObject({ ticketUses: z.union([z.number().int().min(0).max(1000),z.literal(2147483647)]).optional(), productId: IdentifierSchema, variantId: IdentifierSchema, productName: name, variantName: name, unitPriceRappen: RappenSchema, productActive: z.boolean(), active: z.boolean() });
+export const CartItemSchema = z.strictObject({ originalUnitPriceRappen:RappenSchema.optional(),discountLabel:z.string().min(1).max(120).optional(), ticketUses: z.union([z.number().int().min(0).max(1000),z.literal(2147483647)]).optional(), id: IdentifierSchema, productId: IdentifierSchema, variantId: IdentifierSchema, productName: name, variantName: name, unitPriceRappen: RappenSchema, quantity, lineTotalRappen: RappenSchema });
 export const CartSchema = z.strictObject({ id: IdentifierSchema, revision: RevisionSchema, items: z.array(CartItemSchema).max(1000).readonly(), subtotalRappen: RappenSchema });
 export const CheckoutAttemptSchema = z.strictObject({
   idempotencyKey: IdentifierSchema, cartId: IdentifierSchema, cartRevision: RevisionSchema,
