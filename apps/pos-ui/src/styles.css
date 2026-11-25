@@ -1520,7 +1520,7 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--accent-fill); 
 .receipt-preview-dialog .modal-heading h2 { font-size: 1.3rem; margin: 0; }
 .receipt-preview-hint { color: var(--muted); font-size: .76rem; line-height: 1.6; }
 .receipt-paper-surround { display: flex; justify-content: center; padding: 20px 12px; background: var(--theme-control); border-radius: 14px; max-height: min(52dvh, 560px); overflow-y: auto; margin: 16px 0 20px; }
-.receipt-paper { width: 80mm; max-width: 100%; flex: 0 0 auto; height: fit-content; box-sizing: border-box; padding: 6mm 4mm; background: #fff; color: #111; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11px; line-height: 1.6; box-shadow: 0 4px 16px #0002; overflow-wrap: anywhere; }
+.receipt-paper { width: 80mm; max-width: 100%; flex: 0 0 auto; height: fit-content; box-sizing: border-box; padding: 6mm 4mm; background: #fff; color: #111; font-family: Arial, Helvetica, sans-serif; font-variant-numeric: lining-nums tabular-nums; font-feature-settings: 'zero' 0; font-size: 11px; line-height: 1.6; box-shadow: 0 4px 16px #0002; overflow-wrap: anywhere; }
 .receipt-paper header { text-align: center; display: grid; gap: 4px; }
 .receipt-paper header strong { font-size: 17px; }
 .receipt-paper-meta { font-size: 9px; margin: 16px 0; }
@@ -1736,3 +1736,5 @@ body:has(.demo-banner) .checkout-backdrop { top: 76px; }
 
 .order-feature-settings .inline-check { display:flex; align-items:center; gap:14px; margin:16px 0; min-height:42px; }.order-feature-settings input[type=checkbox] { width:26px; height:26px; flex:none; }.order-feature-settings>button { min-height:48px; }.order-feature-settings hr { border:0; border-top:1px solid var(--line); margin:28px 0; }
 .receipt-paper .order-reference-number { display:flex; flex-direction:column; text-align:center; font-size:14px; padding:14px 0; border-top:3px solid #111; border-bottom:3px solid #111; margin:8px 0; color:#000; background:#fff; }.receipt-paper .order-reference-number b { display:block; font-size:52px; line-height:1.15; font-weight:900; letter-spacing:1px; padding-top:8px; }.receipt-barcode { color:#000; background:#fff; text-align:center; padding:18px 0 10px; border-top:1px dashed #444; margin-top:16px; }.receipt-barcode .ticket-barcode { display:block; width:100%; height:74px; margin:0; }.receipt-barcode code { display:block; font-size:13px; letter-spacing:1px; margin:4px 0; }.receipt-barcode small { display:block; font-size:10px; }
+
+.receipt-paper code { font-family: inherit; font-variant-numeric: lining-nums tabular-nums; font-feature-settings: 'zero' 0; }

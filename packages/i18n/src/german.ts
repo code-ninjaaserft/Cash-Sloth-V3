@@ -1,4 +1,6 @@
 export const german: Readonly<Record<string, string>> = {
+  "This order has been deleted.": "Diese Bestellung wurde gelöscht.",
+  "This order was deleted with its sale history.": "Diese Bestellung wurde zusammen mit ihrem Verkaufsverlauf gelöscht.",
   "Order functions": "Bestellfunktionen",
   "Switch functions on or off. Existing unpaid orders can still be paid.": "Funktionen ein- oder ausschalten. Bereits offene Bestellungen können weiterhin bezahlt werden.",
   "Order status display": "Kunden-Infobildschirm",

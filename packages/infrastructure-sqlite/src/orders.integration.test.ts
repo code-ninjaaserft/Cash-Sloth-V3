@@ -1,12 +1,18 @@
+import {createHash} from 'node:crypto';
+import {createHistoryService} from '@cash-sloth/application';
+import {createHistoryStore} from './history-store.js';
 import {createCatalogService} from '@cash-sloth/application';
 import {createCatalogStore} from './catalog-store.js';
 import {mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {afterEach,beforeEach,describe,it,expect} from 'vitest';
 import {createOrderService,createPaymentsService,createPosService,createPresetService} from '@cash-sloth/application';import type {Result} from '@cash-sloth/contracts';
-import {openDatabase,type DatabaseConnection} from './connection.js';import {runMigrations} from './migrations.js';import {seedDevelopmentCatalog} from './seed.js';import {createOrderStore} from './order-store.js';import {createPosStore} from './pos-store.js';import {createFinanceStore} from './finance-store.js';import {createPresetStore} from './preset-store.js';
+import {openDatabase,type DatabaseConnection} from './connection.js';import {migrations,runMigrations} from './migrations.js';import {seedDevelopmentCatalog} from './seed.js';import {createOrderStore} from './order-store.js';import {createPosStore} from './pos-store.js';import {createFinanceStore} from './finance-store.js';import {createPresetStore} from './preset-store.js';
 function value<T>(r:Result<T>):T{if(!r.ok)throw new Error(r.error.code+': '+r.error.message);return r.value;}
 describe('persistent self-service orders',()=>{
  let db:DatabaseConnection,directory:string,seq:number;const runtime={newId:()=> 'order-'+(++seq),now:()=> '2026-11-25T12:00:00.000Z'};
  const service=()=>createOrderService(createOrderStore(db),runtime),pos=()=>createPosService(createPosStore(db),runtime),pay=()=>createPaymentsService(createFinanceStore(db),runtime);
+ const history=()=>createHistoryService(createHistoryStore(db),runtime);
+ const settle=(cart:{id:string;revision:number;subtotalRappen:number})=>{const checkout=value(pay().startCheckout({cartId:cart.id,expectedRevision:cart.revision}));const a=value(pay().preparePayment({sessionId:checkout.session.id,idempotencyKey:runtime.newId(),method:'card',intendedRappen:cart.subtotalRappen}));value(pay().confirmPayment({attemptId:a.id,operatorConfirmed:true}));return value(pay().completeCheckout({sessionId:checkout.session.id}));};
+ const filledCart=()=>{const c=value(pos().getCart({})).cart;return value(pos().addItem({cartId:c.id,expectedRevision:c.revision,variantId:'variant-chocolate-default'}));};
  const request=()=>{const catalog=value(service().catalog({}));return {operationId:runtime.newId(),eventId:catalog.eventId,version:catalog.version,items:[{variantId:'variant-chocolate-default',quantity:2}]};};
  beforeEach(()=>{directory=mkdtempSync(join(tmpdir(),'sloth-orders-'));db=openDatabase(join(directory,'test.sqlite'));runMigrations(db);seedDevelopmentCatalog(db,'development');seq=0;});afterEach(()=>{db.close();rmSync(directory,{recursive:true,force:true,maxRetries:5});});
  it('creates numbered unpaid snapshots, survives restart and retries the same order without duplicates',()=>{
@@ -118,6 +124,55 @@ describe('persistent self-service orders',()=>{
  });
  it('honours an explicit counter reset ahead of queued rejected numbers',()=>{
   const all=[value(service().submit(request())),value(service().submit(request())),value(service().submit(request()))];for(const index of [2,0])value(service().status({orderId:all[index]!.id,operationId:runtime.newId(),status:'cancelled'}));value(service().resetCounter({operationId:runtime.newId()}));expect(value(service().submit(request())).number).toBe(1);expect(value(service().submit(request())).number).toBe(3);expect(value(service().submit(request())).number).toBe(4);
+ });
+
+ it('deletes a sold kiosk order and its recovery payloads without deleting unpaid orders or replaying a purged submission',()=>{
+  const input=request(),sold=value(service().submit(input)),unpaid=value(service().submit(request())),accept={orderId:sold.id,operationId:runtime.newId()};const sale=settle(value(service().accept(accept)));const code=value(history().getReceiptCode({saleId:sale.id}));
+  value(history().removeSale({saleId:sale.id,reason:'Incorrect sale'}));expect(createOrderStore(db).get(sold.id)).toBeNull();expect(createOrderStore(db).get(unpaid.id)!.status).toBe('waiting');expect(value(service().board({})).orders.map(o=>o.id)).toEqual([unpaid.id]);
+  for(const id of [input.operationId,accept.operationId])expect(db.sqlite.prepare('SELECT 1 FROM order_operations WHERE id=?').get(id)).toBeUndefined();expect(db.sqlite.prepare('SELECT 1 FROM receipt_codes WHERE code=?').get(code)).toBeUndefined();
+  expect(service().submit(input)).toMatchObject({ok:false,error:{code:'NOT_FOUND'}});expect(service().accept(accept)).toMatchObject({ok:false,error:{code:'NOT_FOUND'}});expect(value(service().list({}))).toHaveLength(1);
+ });
+ it('deletes every paid table batch while retaining later unpaid bookings with the same table name',()=>{
+  const book=()=>{const c=filledCart();return value(service().book({cartId:c.id,expectedRevision:c.revision,operationId:runtime.newId(),serviceLabel:'Tisch 7'}));};const first=book(),second=book();const sale=settle(value(service().accept({orderId:first.id,operationId:runtime.newId()})));const later=book();
+  value(history().removeSale({saleId:sale.id,reason:'Incorrect bill'}));expect(createOrderStore(db).get(first.id)).toBeNull();expect(createOrderStore(db).get(second.id)).toBeNull();expect(createOrderStore(db).get(later.id)!.status).toBe('waiting');expect(value(service().kitchen({})).orders.map(o=>o.id)).toEqual([later.id]);
+ });
+ it('purges orders from legacy cash sales together with the sale',()=>{
+  const c=filledCart(),checkout=value(pos().prepareCheckout({cartId:c.id,expectedRevision:c.revision})),sale=value(pos().completeSale({idempotencyKey:checkout.idempotencyKey,cashReceivedRappen:250,operatorConfirmed:true}));expect(sale.order).toBeDefined();value(history().removeSale({saleId:sale.id,reason:'Incorrect cash sale'}));expect(createOrderStore(db).get(sale.order!.id)).toBeNull();expect(value(service().list({}))).toHaveLength(0);
+ });
+ it('scopes event and device history deletion to their sold orders while preserving unpaid orders',()=>{
+  const presets=createPresetService(createPresetStore(db),runtime);const event=(name:string)=>value(presets.save({operationId:runtime.newId(),catalogVersion:createPresetStore(db).catalogVersion(),presetId:null,expectedRevision:null,name,empty:false})).active!.id;
+  const a=event('Event A'),first=settle(filledCart()),second=settle(filledCart()),openA=value(service().submit(request()));event('Event B');const other=settle(filledCart()),openB=value(service().submit(request()));
+  const preview=value(history().previewRemoval({scope:'event',eventId:a}));value(history().removeHistory({scope:'event',eventId:a,operationId:runtime.newId(),expectedVersion:preview.version,reason:'Reset event'}));for(const sale of [first,second])expect(createOrderStore(db).get(sale.order!.id)).toBeNull();expect(createOrderStore(db).get(other.order!.id)).not.toBeNull();expect(createOrderStore(db).get(openA.id)).not.toBeNull();
+  const all=value(history().previewRemoval({scope:'device',eventId:null}));value(history().removeHistory({scope:'device',eventId:null,operationId:runtime.newId(),expectedVersion:all.version,reason:'Reset device'}));expect(createOrderStore(db).get(other.order!.id)).toBeNull();expect(createOrderStore(db).list().map(o=>o.id).sort()).toEqual([openA.id,openB.id].sort());
+ });
+ it('rolls back the sale, order, barcode and recovery deletion together if order deletion fails',()=>{
+  const input=request(),o=value(service().submit(input)),sale=settle(value(service().accept({orderId:o.id,operationId:runtime.newId()})));const code=value(history().getReceiptCode({saleId:sale.id}));db.sqlite.exec("CREATE TEMP TRIGGER fail_order_delete BEFORE DELETE ON kiosk_orders BEGIN SELECT RAISE(ABORT,'test failure'); END");
+  expect(history().removeSale({saleId:sale.id,reason:'Incorrect sale'}).ok).toBe(false);expect(value(pay().getSaleDetails({saleId:sale.id})).sale.id).toBe(sale.id);expect(createOrderStore(db).get(o.id)!.paid).toBe(true);expect(value(history().getReceiptCode({saleId:sale.id}))).toBe(code);expect(value(service().submit(input)).id).toBe(o.id);expect(db.sqlite.prepare('SELECT count(*) n FROM purged_order_operations').get()?.['n']).toBe(0);
+  db.sqlite.exec('DROP TRIGGER fail_order_delete');value(history().removeSale({saleId:sale.id,reason:'Incorrect sale'}));expect(createOrderStore(db).get(o.id)).toBeNull();
+ });
+ it('cleans old cancelled orders on upgrade while retaining unpaid and team orders',()=>{
+  db.close();db=openDatabase(join(directory,'old21.sqlite'));db.sqlite.exec('CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,checksum TEXT NOT NULL,applied_at TEXT NOT NULL) STRICT;BEGIN IMMEDIATE');
+  for(const m of migrations.filter(m=>m.version<=21)){db.sqlite.exec(m.sql);db.sqlite.prepare('INSERT INTO schema_migrations VALUES(?,?,?,?)').run(m.version,m.name,createHash('sha256').update(m.sql).digest('hex'),runtime.now());}db.sqlite.exec('COMMIT');seedDevelopmentCatalog(db,'development');
+  const input=request(),o=value(service().submit(input)),sale=settle(value(service().accept({orderId:o.id,operationId:runtime.newId()})));value(history().removeSale({saleId:sale.id,reason:'Old removal'}));expect(createOrderStore(db).get(o.id)!.status).toBe('cancelled');
+  const pending=value(service().submit(request())),rejected=value(service().submit(request()));value(service().status({orderId:rejected.id,operationId:runtime.newId(),status:'cancelled'}));const c=filledCart(),team=value(pay().startCheckout({cartId:c.id,expectedRevision:c.revision}));value(pay().completeTeam({sessionId:team.session.id}));const teamOrder=createOrderStore(db).list().find(row=>row.cartId===c.id)!;
+  runMigrations(db);expect(createOrderStore(db).get(o.id)).toBeNull();expect(createOrderStore(db).get(rejected.id)).toBeNull();for(const id of [pending.id,teamOrder.id])expect(createOrderStore(db).get(id)).not.toBeNull();expect(service().submit(input)).toMatchObject({ok:false,error:{code:'NOT_FOUND'}});
+ });
+
+ it('removes a cancelled order from storage, views and recovery payloads while keeping a minimal replayable acknowledgement',()=>{
+  const input=request(),o=value(service().submit(input)),cancel={operationId:runtime.newId(),orderId:o.id,status:'cancelled' as const};const ack=value(service().status(cancel));expect(ack).toEqual({id:o.id,deleted:true});expect(createOrderStore(db).get(o.id)).toBeNull();expect(value(service().list({}))).toHaveLength(0);expect(value(service().board({})).orders).toHaveLength(0);expect(value(service().kitchen({})).orders).toHaveLength(0);
+  expect(db.sqlite.prepare('SELECT 1 FROM order_operations WHERE id=?').get(input.operationId)).toBeUndefined();expect(JSON.parse(String(db.sqlite.prepare('SELECT result FROM order_operations WHERE id=?').get(cancel.operationId)?.['result']))).toEqual(ack);expect(service().submit(input)).toMatchObject({ok:false,error:{code:'NOT_FOUND'}});
+  const replacement=value(service().submit(request()));expect(replacement.number).toBe(o.number);db.close();db=openDatabase(join(directory,'test.sqlite'));runMigrations(db);expect(value(service().status(cancel))).toEqual(ack);expect(value(service().submit(request())).number).toBe(2);
+ });
+ it('recovers a lost cancellation acknowledgement without a second number release',()=>{
+  const o=value(service().submit(request())),input={operationId:runtime.newId(),orderId:o.id,status:'cancelled' as const},store=createOrderStore(db);let fail=true;const uncertain=createOrderService({...store,pos:{...store.pos,transaction:createPosStore(db,{afterCommit(){if(fail){fail=false;throw new Error('lost cancellation acknowledgement');}}}).transaction}},runtime);
+  expect(uncertain.status(input)).toMatchObject({ok:false,error:{code:'COMMIT_UNCERTAIN'}});expect(createOrderStore(db).get(o.id)).toBeNull();expect(value(service().status(input))).toEqual({id:o.id,deleted:true});expect(value(service().submit(request())).number).toBe(1);expect(value(service().status(input))).toEqual({id:o.id,deleted:true});expect(value(service().submit(request())).number).toBe(2);
+ });
+ it('rolls back cancellation and number release if deletion cannot be completed',()=>{
+  const o=value(service().submit(request())),input={operationId:runtime.newId(),orderId:o.id,status:'cancelled' as const};db.sqlite.exec("CREATE TEMP TRIGGER fail_cancellation_delete BEFORE DELETE ON kiosk_orders BEGIN SELECT RAISE(ABORT,'test failure'); END");expect(service().status(input).ok).toBe(false);expect(createOrderStore(db).get(o.id)!.status).toBe('waiting');expect(db.sqlite.prepare('SELECT count(*) n FROM rejected_order_numbers').get()?.['n']).toBe(0);expect(db.sqlite.prepare('SELECT count(*) n FROM purged_order_operations').get()?.['n']).toBe(0);db.sqlite.exec('DROP TRIGGER fail_cancellation_delete');expect(value(service().status(input))).toEqual({id:o.id,deleted:true});expect(value(service().submit(request())).number).toBe(1);
+ });
+ it('also deletes cancelled register and table orders, returning only numbered orders to the number pool',()=>{
+  const cart=filledCart(),checkout=value(pay().startCheckout({cartId:cart.id,expectedRevision:cart.revision})),registered=createOrderStore(db).list().find(o=>o.cartId===cart.id)!;value(pay().cancelCheckout({sessionId:checkout.session.id}));value(pos().clearCart({cartId:cart.id,expectedRevision:cart.revision}));expect(createOrderStore(db).get(registered.id)).toBeNull();
+  const c=filledCart(),table=value(service().book({cartId:c.id,expectedRevision:c.revision,operationId:runtime.newId(),serviceLabel:'Tisch 4'}));expect(value(service().status({orderId:table.id,operationId:runtime.newId(),status:'cancelled'}))).toEqual({id:table.id,deleted:true});expect(createOrderStore(db).get(table.id)).toBeNull();expect(db.sqlite.prepare('SELECT count(*) n FROM rejected_order_numbers').get()?.['n']).toBe(1);expect(value(service().submit(request())).number).toBe(registered.number);
  });
 
 });

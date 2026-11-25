@@ -1,4 +1,4 @@
-import {categorySummaries} from '@cash-sloth/domain';
+import {DomainError,categorySummaries} from '@cash-sloth/domain';
 import {allocateOrderNumber} from './order-persistence.js';
 import {OrderSettingsSchema,OrderSchema,KioskCatalogSchema} from '@cash-sloth/contracts';
 import type {OrderStore} from '@cash-sloth/application';
@@ -19,7 +19,7 @@ export function createOrderStore(connection:DatabaseConnection):OrderStore{
  list:()=>sqlite.prepare('SELECT * FROM kiosk_orders ORDER BY rowid DESC').all().map(read),
  get(id){const row=sqlite.prepare('SELECT * FROM kiosk_orders WHERE id=?').get(id);return row?read(row):null;},
  put(order){check();const checked=OrderSchema.parse(order);sqlite.prepare('INSERT INTO kiosk_orders VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET cart_id=excluded.cart_id,status=excluded.status,data=excluded.data,source=excluded.source,service_label=excluded.service_label,prep_status=excluded.prep_status,revision=excluded.revision').run(checked.id,checked.number,checked.cartId,checked.status,JSON.stringify(checked),checked.source,checked.serviceLabel,checked.preparation,checked.revision);},
- operation(id){const row=sqlite.prepare('SELECT request,result FROM order_operations WHERE id=?').get(id);return row?{request:String(row['request']),result:String(row['result'])}:null;},
+ operation(id){const row=sqlite.prepare('SELECT request,result FROM order_operations WHERE id=?').get(id);const deletedAck=row&&JSON.parse(String(row['result'])) as {deleted?:unknown}|undefined;if(deletedAck?.deleted!==true&&sqlite.prepare("SELECT 1 FROM sqlite_master WHERE name='purged_order_operations'").get()&&sqlite.prepare('SELECT 1 FROM purged_order_operations WHERE id=?').get(id))throw new DomainError('NOT_FOUND','This order has been deleted.');return row?{request:String(row['request']),result:String(row['result'])}:null;},
  saveOperation(id,request,result){check();sqlite.prepare('INSERT INTO order_operations VALUES(?,?,?)').run(id,request,result);},
  };
 }

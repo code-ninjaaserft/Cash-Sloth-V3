@@ -49,11 +49,11 @@ export function createOrderService(store:OrderStore,runtime:PosRuntime){
  })),
  release:(input:OrdersRequest<'release'>)=>run('release',input,()=>once(input.operationId,input,()=>{
   const current=order(input.orderId);if(current.status!=='register'||!current.cartId)throw new DomainError('CONFLICT','Only unpaid register orders can be released.');idle();const cart=store.pos.getCart(current.cartId);if(!cart)throw new DomainError('CONFLICT','Order cart is no longer available.');
-  const group=eventOrders().filter(o=>o.cartId===current.cartId&&o.status==='register');let next=current;for(const o of group)next=put(o,{status:o.source==='register'?'cancelled':'waiting',cartId:null,...(o.source==='register'?{preparation:'cancelled' as const}:{})});store.pos.updateCart(clearCart(cart),cart.revision);return next;
+  const group=eventOrders().filter(o=>o.cartId===current.cartId&&o.status==='register');let next=current;for(const o of group)next=put(o,{status:o.source==='register'?'cancelled':'waiting',cartId:null,...(o.source==='register'?{preparation:'cancelled' as const}:{})});store.pos.updateCart(clearCart(cart),cart.revision);return current.source==='register'?{id:current.id,deleted:true as const}:next;
  })),
  status:(input:OrdersRequest<'status'>)=>run('status',input,()=>once(input.operationId,input,()=>{
   const current=order(input.orderId);
-  if(input.status==='cancelled'){if(current.status!=='waiting'||current.preparation!=='received')throw new DomainError('CONFLICT','Only a received unpaid order can be cancelled.');return put(current,{status:'cancelled',preparation:'cancelled'});}
+  if(input.status==='cancelled'){if(current.status!=='waiting'||current.preparation!=='received')throw new DomainError('CONFLICT','Only a received unpaid order can be cancelled.');put(current,{status:'cancelled',preparation:'cancelled'});return {id:current.id,deleted:true as const};}
   return prep(current,input.status==='ready'?'ready':'collected');
  })),
  };
