@@ -30,3 +30,6 @@ export type { TicketStore, TicketRedemption } from './ticket-ports.js';
 
 export {createPromotionService} from './promotion-service.js';
 export type {PromotionStore,PromotionRuntime} from './promotion-ports.js';
+
+export * from './order-ports.js';
+export * from './order-service.js';

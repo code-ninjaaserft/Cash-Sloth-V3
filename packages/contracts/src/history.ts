@@ -1,9 +1,11 @@
 import { z } from 'zod';
-import { IdentifierSchema, PosErrorSchema, RappenSchema } from './pos.js';
+import { OrderContextSchema, IdentifierSchema, PosErrorSchema, RappenSchema } from './pos.js';
 
 const date = z.iso.date().refine((value) => value >= '1900-01-01' && value <= '9998-12-31', 'History dates must be from 1900 through 9998.');
 const timestamp = z.iso.datetime();
+export const ReceiptCodeSchema=z.string().regex(/^(?:CC|DC)[0-9A-F]{14}$/u);
 export const HistoryFiltersSchema = z.strictObject({
+  orderNumber:z.number().int().min(1).max(99).nullable().optional(),serviceLabel:z.string().trim().max(80).refine(v=>!/[\p{Cc}]/u.test(v)).optional(),receiptCode:z.union([z.literal(''),ReceiptCodeSchema]).optional(),
   scope: z.enum(['device', 'event']).optional(), eventId: IdentifierSchema.nullable().optional(), includeRemoved: z.boolean().optional(),
   dateFrom: date.nullable(), dateTo: date.nullable(),
   paymentMethod: z.enum(['all', 'cash', 'card', 'twint', 'voucher', 'mixed']),
@@ -15,7 +17,7 @@ export const HistoryFiltersSchema = z.strictObject({
 export const HistorySortSchema = z.strictObject({ field: z.enum(['date', 'total']), direction: z.enum(['asc', 'desc']) });
 export const HistorySearchRequestSchema = z.strictObject({ filters: HistoryFiltersSchema, sort: HistorySortSchema, page: z.number().int().min(1).max(1_000_000), pageSize: z.number().int().min(1).max(100) });
 export const HistoryExportRequestSchema = z.strictObject({ filters: HistoryFiltersSchema, sort: HistorySortSchema });
-export const SaleHistoryEntrySchema = z.strictObject({ tipRappen: RappenSchema.optional(),
+export const SaleHistoryEntrySchema = z.strictObject({ order:OrderContextSchema.optional(), tipRappen: RappenSchema.optional(),
   eventId: IdentifierSchema.nullable().optional(), eventTitle: z.string().max(200).nullable().optional(), removedAt: timestamp.nullable().optional(), removalReason: z.string().max(1000).nullable().optional(),
   id: IdentifierSchema, completedAt: timestamp, subtotalRappen: RappenSchema,
   roundingAdjustmentRappen: z.number().int().min(-2).max(2), actualPaidRappen: RappenSchema,
@@ -30,6 +32,7 @@ export const SaleHistoryContextSchema = z.strictObject({ unresolvedRefundCount: 
 function result<T extends z.ZodType>(value: T) { return z.discriminatedUnion('ok', [z.strictObject({ ok: z.literal(true), value }), z.strictObject({ ok: z.literal(false), error: PosErrorSchema })]); }
 const removalScope = z.strictObject({ scope: z.enum(['event', 'device']), eventId: IdentifierSchema.nullable() }).refine((input) => input.scope === 'event' || input.eventId === null);
 export const HISTORY_IPC_CONTRACTS = {
+  getReceiptCode:{channel:'history:getReceiptCode',request:z.strictObject({saleId:IdentifierSchema}),response:result(ReceiptCodeSchema)},
   previewRemoval: { channel: 'history:previewRemoval', request: removalScope, response: result(z.strictObject({ count: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), version: z.string().regex(/^[a-f0-9]{64}$/u) })) },
   removeHistory: { channel: 'history:removeHistory', request: z.strictObject({ scope: z.enum(['event', 'device']), eventId: IdentifierSchema.nullable(), operationId: IdentifierSchema, expectedVersion: z.string().regex(/^[a-f0-9]{64}$/u), reason: z.string().trim().min(1).max(1000).refine((value) => !/\p{Cc}/u.test(value)) }).refine((input) => input.scope === 'event' || input.eventId === null), response: result(z.strictObject({ removedCount: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) })) },
   getEvents: { channel: 'history:getEvents', request: z.strictObject({}), response: result(z.strictObject({ activeEventId: IdentifierSchema.nullable(), events: z.array(z.strictObject({ id: IdentifierSchema, title: z.string().min(1).max(200) })).readonly() })) },

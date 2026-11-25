@@ -4,9 +4,9 @@ import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
-import { createPromotionService, createTicketService, createCustomerDisplayService, createPresetService, createCatalogService, createHistoryService, createManagementService, createPaymentsService, createPosService, createSystemService } from '@cash-sloth/application';
-import { PROMOTIONS_CONTRACTS, TICKETDESK_CONTRACTS, TICKETS_CONTRACTS, DEMO_CONTRACTS, CUSTOMER_DISPLAY_CONTRACTS, PRESETS_IPC_CONTRACTS, CATALOG_IPC_CONTRACTS, FILES_IPC_CONTRACTS, HISTORY_IPC_CONTRACTS, MANAGEMENT_IPC_CONTRACTS, PAYMENTS_IPC_CONTRACTS, POS_IPC_CONTRACTS, SYSTEM_GET_INFO_CHANNEL, SystemGetInfoRequestSchema, SystemInfoSchema } from '@cash-sloth/contracts';
-import { createPromotionStore, createTicketStore, createPresetStore, createCatalogStore, createFinanceStore, createHistoryStore, createManagementStore, createPosStore, openDatabase, probeDatabase, runMigrations, seedDevelopmentCatalog } from '@cash-sloth/infrastructure-sqlite';
+import { createOrderService, createPromotionService, createTicketService, createCustomerDisplayService, createPresetService, createCatalogService, createHistoryService, createManagementService, createPaymentsService, createPosService, createSystemService } from '@cash-sloth/application';
+import { ORDERS_CONTRACTS, PROMOTIONS_CONTRACTS, TICKETDESK_CONTRACTS, TICKETS_CONTRACTS, DEMO_CONTRACTS, CUSTOMER_DISPLAY_CONTRACTS, PRESETS_IPC_CONTRACTS, CATALOG_IPC_CONTRACTS, FILES_IPC_CONTRACTS, HISTORY_IPC_CONTRACTS, MANAGEMENT_IPC_CONTRACTS, PAYMENTS_IPC_CONTRACTS, POS_IPC_CONTRACTS, SYSTEM_GET_INFO_CHANNEL, SystemGetInfoRequestSchema, SystemInfoSchema } from '@cash-sloth/contracts';
+import { createOrderStore, createPromotionStore, createTicketStore, createPresetStore, createCatalogStore, createFinanceStore, createHistoryStore, createManagementStore, createPosStore, openDatabase, probeDatabase, runMigrations, seedDevelopmentCatalog } from '@cash-sloth/infrastructure-sqlite';
 import {
   deriveDataPaths,
   ensureDataDirectories,
@@ -48,6 +48,11 @@ app.enableSandbox();
 
 let mainWindow: BrowserWindow | null = null;
 let customerWindow: BrowserWindow | null = null;
+let orderInfoWindow:BrowserWindow|null=null;
+let kitchenWindow:BrowserWindow|null=null;
+const orderInfoUrl=uiUrl+'?orderinfo=1',kitchenUrl=uiUrl+'?kitchen=1';
+let kioskWindow: BrowserWindow | null = null;
+const kioskUrl = uiUrl + '?kiosk=1';
 let ticketdeskWindow: BrowserWindow | null = null;
 const ticketdeskUrl = uiUrl + '?ticketdesk=1';
 const customerUrl = uiUrl + '?customer=1';
@@ -115,7 +120,7 @@ async function createWindow(): Promise<void> {
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
   window.once('ready-to-show', () => window.show());
   window.on('closed', () => {
-    if (mainWindow === window) { mainWindow = null; customerWindow?.close(); ticketdeskWindow?.close(); }
+    if (mainWindow === window) { mainWindow = null; customerWindow?.close(); ticketdeskWindow?.close(); kioskWindow?.close(); orderInfoWindow?.close(); kitchenWindow?.close(); }
   });
   await window.loadURL(uiUrl);
 }
@@ -129,6 +134,18 @@ async function openCustomerWindow(): Promise<void> {
   window.webContents.on('will-navigate', (event) => event.preventDefault()); window.webContents.on('will-attach-webview', (event) => event.preventDefault());
   window.once('ready-to-show', () => window.show()); window.on('closed', () => { if (customerWindow === window) customerWindow = null; });
   try { await window.loadURL(customerUrl); } catch (failure) { if (!window.isDestroyed()) window.close(); throw failure; }
+}
+
+async function openOrderBoard(kitchen:boolean):Promise<void>{
+ const existing=kitchen?kitchenWindow:orderInfoWindow;if(existing&&!existing.isDestroyed()){if(existing.isMinimized())existing.restore();existing.show();existing.focus();return;}
+ const window=new BrowserWindow({title:kitchen?'Cash Sloth — Küche / Bar':'Cash Sloth — Bestellstatus',icon:windowIconPath,width:1280,height:850,minWidth:640,minHeight:480,show:false,webPreferences:{preload:join(moduleDirectory,kitchen?'kitchen-preload.cjs':'order-info-preload.cjs'),session:session.fromPartition('persist:cash-sloth-'+channel),contextIsolation:true,sandbox:true,nodeIntegration:false,nodeIntegrationInWorker:false,nodeIntegrationInSubFrames:false,webSecurity:true,webviewTag:false}});
+ if(kitchen)kitchenWindow=window;else orderInfoWindow=window;window.setMenu(null);window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.on('will-navigate',e=>e.preventDefault());window.webContents.on('will-attach-webview',e=>e.preventDefault());window.once('ready-to-show',()=>window.show());window.on('closed',()=>{if(kitchen&&kitchenWindow===window)kitchenWindow=null;if(!kitchen&&orderInfoWindow===window)orderInfoWindow=null;});try{await window.loadURL(kitchen?kitchenUrl:orderInfoUrl);}catch(e){if(!window.isDestroyed())window.close();throw e;}
+}
+async function openKioskWindow():Promise<void>{
+ if(kioskWindow&&!kioskWindow.isDestroyed()){kioskWindow.show();if(kioskWindow.isMinimized())kioskWindow.restore();kioskWindow.focus();return;}
+ const window=new BrowserWindow({title:'Cash Sloth — Selbstbedienung',icon:windowIconPath,width:1200,height:900,minWidth:640,minHeight:480,show:false,webPreferences:{preload:join(moduleDirectory,'kiosk-preload.cjs'),session:session.fromPartition('persist:cash-sloth-'+channel),contextIsolation:true,sandbox:true,nodeIntegration:false,nodeIntegrationInWorker:false,nodeIntegrationInSubFrames:false,webSecurity:true,webviewTag:false}});
+ kioskWindow=window;window.setMenu(null);window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.on('will-navigate',event=>event.preventDefault());window.webContents.on('will-attach-webview',event=>event.preventDefault());window.once('ready-to-show',()=>window.show());window.on('closed',()=>{if(kioskWindow===window)kioskWindow=null;});
+ try{await window.loadURL(kioskUrl);}catch(error){if(!window.isDestroyed())window.close();throw error;}
 }
 
 async function openTicketdeskWindow(): Promise<void> {
@@ -164,10 +181,16 @@ app.whenReady().then(async () => {
     contract: { channel: string; request: RuntimeParser<TRequest>; response: RuntimeParser<TResponse> },
     execute: (input: TRequest) => TResponse,
     allowTicketdesk = false,
+    allowKiosk = false,
+    allowKitchen = false,
+    allowOrderInfo = false,
   ): void {
     ipcMain.handle(contract.channel, (event, ...args: unknown[]) => {
       const fromTicketdesk = allowTicketdesk && ticketdeskWindow !== null && !ticketdeskWindow.isDestroyed() && event.sender.id === ticketdeskWindow.webContents.id;
-      const window = fromTicketdesk ? ticketdeskWindow : mainWindow;
+      const fromKiosk=allowKiosk&&kioskWindow!==null&&!kioskWindow.isDestroyed()&&event.sender.id===kioskWindow.webContents.id;
+      const fromKitchen=allowKitchen&&kitchenWindow!==null&&!kitchenWindow.isDestroyed()&&event.sender.id===kitchenWindow.webContents.id;
+      const fromInfo=allowOrderInfo&&orderInfoWindow!==null&&!orderInfoWindow.isDestroyed()&&event.sender.id===orderInfoWindow.webContents.id;
+      const window = fromInfo ? orderInfoWindow : fromKitchen ? kitchenWindow : fromKiosk ? kioskWindow : fromTicketdesk ? ticketdeskWindow : mainWindow;
       if (window === null || window.isDestroyed()) throw new Error('No active register window');
       const frame = event.senderFrame;
       const sender: SenderIdentity | null = frame === null ? null : {
@@ -176,7 +199,7 @@ app.whenReady().then(async () => {
         frameRoutingId: frame.routingId,
         url: frame.url,
       };
-      return handleValidatedIpc(sender, identity(window, fromTicketdesk ? ticketdeskUrl : uiUrl), args, contract, (input) => {
+      return handleValidatedIpc(sender, identity(window, fromInfo ? orderInfoUrl : fromKitchen ? kitchenUrl : fromKiosk ? kioskUrl : fromTicketdesk ? ticketdeskUrl : uiUrl), args, contract, (input) => {
         if (switchingMode) throw new Error('Mode switch in progress.');
         if (demoMode && ['history:removeSale', 'history:removeHistory', 'payments:prepareRefund', 'payments:confirmRefund', 'payments:reconcile'].includes(contract.channel)) throw new Error('Unavailable in demo mode.');
         return execute(input);
@@ -250,6 +273,8 @@ app.whenReady().then(async () => {
   registerOperation(MANAGEMENT_IPC_CONTRACTS.applyImportPlan, (input) => management.applyImportPlan(input));
   registerOperation(MANAGEMENT_IPC_CONTRACTS.getImportOperation, (input) => management.getImportOperation(input));
   const history = createHistoryService(createHistoryStore(database), { now: () => new Date().toISOString() });
+  let receipts=history;
+  registerOperation(HISTORY_IPC_CONTRACTS.getReceiptCode,input=>receipts.getReceiptCode(input));
   registerOperation(HISTORY_IPC_CONTRACTS.previewRemoval, (input) => history.previewRemoval(input));
   registerOperation(HISTORY_IPC_CONTRACTS.removeHistory, (input) => history.removeHistory(input));
   registerOperation(HISTORY_IPC_CONTRACTS.getEvents, (input) => history.getEvents(input));
@@ -303,7 +328,25 @@ app.whenReady().then(async () => {
   registerOperation(PROMOTIONS_CONTRACTS.clear,input=>promotions.clear(input));
   registerOperation(PROMOTIONS_CONTRACTS.walletPay,input=>promotions.walletPay(input));
   registerOperation(PROMOTIONS_CONTRACTS.walletCancel,input=>promotions.walletCancel(input));
-  const live = { promotions,tickets, pos, presets, catalog, payments, management, displayCartStore, displayFinanceStore, displayPresetStore, display };
+  let orders=createOrderService(createOrderStore(database!),{newId:randomUUID,now:()=>new Date().toISOString()});
+  registerOperation(ORDERS_CONTRACTS.getSettings,input=>orders.getSettings(input));
+  registerOperation(ORDERS_CONTRACTS.resetCounter,input=>orders.resetCounter(input));
+  registerOperation(ORDERS_CONTRACTS.setSettings,input=>{const result=orders.setSettings(input);if(result.ok){const latest=orders.getSettings({});if(latest.ok){if(!latest.value.kiosk)kioskWindow?.close();if(!latest.value.infoDisplay)orderInfoWindow?.close();if(!latest.value.kitchen)kitchenWindow?.close();}}return result;});
+  const disabledFeature={ok:false as const,error:{code:'FEATURE_DISABLED',message:'This feature is disabled in Settings.'}};
+  registerFileOperation(ORDERS_CONTRACTS.open,async()=>{const s=orders.getSettings({});if(!s.ok)return s;if(!s.value.kiosk)return disabledFeature;await openKioskWindow();return {ok:true as const,value:{opened:true as const}};});
+  registerOperation(ORDERS_CONTRACTS.catalog,input=>{const r=orders.catalog(input);return r.ok?{ok:true as const,value:{...r.value,demoSessionId}}:r;},false,true);
+  registerOperation(ORDERS_CONTRACTS.submit,input=>orders.submit(input),false,true);
+  registerFileOperation(ORDERS_CONTRACTS.openInfo,async()=>{const s=orders.getSettings({});if(!s.ok)return s;if(!s.value.infoDisplay)return disabledFeature;await openOrderBoard(false);return {ok:true as const,value:{opened:true as const}};});
+  registerFileOperation(ORDERS_CONTRACTS.openKitchen,async()=>{const s=orders.getSettings({});if(!s.ok)return s;if(!s.value.kitchen)return disabledFeature;await openOrderBoard(true);return {ok:true as const,value:{opened:true as const}};});
+  registerOperation(ORDERS_CONTRACTS.board,input=>orders.board(input),false,false,false,true);
+  registerOperation(ORDERS_CONTRACTS.kitchen,input=>{const r=orders.kitchen(input);return r.ok?{ok:true as const,value:{...r.value,demoSessionId}}:r;},false,false,true);
+  registerOperation(ORDERS_CONTRACTS.prepare,input=>orders.prepare(input),false,false,true);
+  registerOperation(ORDERS_CONTRACTS.book,input=>orders.book(input));
+  registerOperation(ORDERS_CONTRACTS.list,input=>orders.list(input));
+  registerOperation(ORDERS_CONTRACTS.accept,input=>orders.accept(input));
+  registerOperation(ORDERS_CONTRACTS.release,input=>orders.release(input));
+  registerOperation(ORDERS_CONTRACTS.status,input=>orders.status(input));
+  const live = { receipts, orders, promotions,tickets, pos, presets, catalog, payments, management, displayCartStore, displayFinanceStore, displayPresetStore, display };
   registerOperation(DEMO_CONTRACTS.getState, () => ({ enabled: demoMode, sessionId: demoSessionId }));
   registerFileOperation(DEMO_CONTRACTS.setMode, async ({ enabled }) => {
     if (switchingMode) return { ok: false as const, error: 'Please wait for the mode switch.' };
@@ -319,6 +362,8 @@ app.whenReady().then(async () => {
         database!.sqlite.prepare('VACUUM INTO ?').run(file);
         nextDatabase = openDatabase(file, { ticketMode: 'demo' });
         const clock = { newId: randomUUID, now: () => new Date().toISOString() };
+        receipts=createHistoryService(createHistoryStore(nextDatabase),clock);
+        orders=createOrderService(createOrderStore(nextDatabase),clock);
         promotions=createPromotionService(createPromotionStore(nextDatabase),promotionRuntime);
         tickets = createTicketService(createTicketStore(nextDatabase), clock);
         pos = createPosService(createPosStore(nextDatabase), clock);
@@ -330,18 +375,18 @@ app.whenReady().then(async () => {
         display = createCustomerDisplayService({ transaction: displayCartStore.transaction, getCart: () => displayCartStore.getDraftCart(), getCheckout: () => { const current = displayFinanceStore.getOpenSession(); return current ? { session: current, attempts: displayFinanceStore.listPaymentAttempts(current.id) } : null; }, getEventLogo: () => displayPresetStore.active()?.logo ?? null, getEventTitle: () => displayFinanceStore.getEventTitle?.() ?? null });
         demoDatabase = nextDatabase; demoDirectory = nextDirectory; demoSessionId = randomUUID();
       } else {
-        ({ promotions,tickets, pos, presets, catalog, payments, management, displayCartStore, displayFinanceStore, displayPresetStore, display } = live);
+        ({ receipts,orders,promotions,tickets, pos, presets, catalog, payments, management, displayCartStore, displayFinanceStore, displayPresetStore, display } = live);
         demoDatabase?.close(); demoDatabase = null;
         if (demoDirectory) removeDemoDirectory(demoDirectory);
         demoDirectory = null; demoSessionId = null;
       }
       demoMode = enabled;
       // A ticketdesk must be explicitly reopened for the new ledger/mode.
-      ticketdeskWindow?.close();
+      ticketdeskWindow?.close(); kioskWindow?.close(); orderInfoWindow?.close(); kitchenWindow?.close();
       return { ok: true as const, value: { enabled: demoMode, sessionId: demoSessionId } };
     } catch {
       if (enabled) {
-        ({ promotions,tickets, pos, presets, catalog, payments, management, displayCartStore, displayFinanceStore, displayPresetStore, display } = live);
+        ({ receipts,orders,promotions,tickets, pos, presets, catalog, payments, management, displayCartStore, displayFinanceStore, displayPresetStore, display } = live);
         nextDatabase?.close();
         if (nextDirectory) removeDemoDirectory(nextDirectory);
       }

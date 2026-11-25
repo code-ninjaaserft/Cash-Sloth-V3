@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import {
+  ORDERS_CONTRACTS, type OrdersApi,
   PROMOTIONS_CONTRACTS,
   type PromotionsApi,
   TICKETDESK_CONTRACTS,
@@ -99,6 +100,7 @@ const management: ManagementApi = Object.freeze({
   getImportOperation: (input) => invoke(MANAGEMENT_IPC_CONTRACTS.getImportOperation, input),
 });
 const history: HistoryApi = Object.freeze({
+  getReceiptCode:input=>invoke(HISTORY_IPC_CONTRACTS.getReceiptCode,input),
   previewRemoval: (input) => invoke(HISTORY_IPC_CONTRACTS.previewRemoval, input),
   removeHistory: (input) => invoke(HISTORY_IPC_CONTRACTS.removeHistory, input),
   getEvents: (input) => invoke(HISTORY_IPC_CONTRACTS.getEvents, input),
@@ -123,6 +125,7 @@ const presets: PresetsApi = Object.freeze({
 const tickets: TicketsApi = Object.freeze({ invalidate: input=>invoke(TICKETS_CONTRACTS.invalidate,input),setExpiry:input=>invoke(TICKETS_CONTRACTS.setExpiry,input), listForSale: (input) => invoke(TICKETS_CONTRACTS.listForSale, input), lookup: (input) => invoke(TICKETS_CONTRACTS.lookup, input), redeem: (input) => invoke(TICKETS_CONTRACTS.redeem, input) });
 const promotions=Object.freeze<PromotionsApi>({getState:input=>invoke(PROMOTIONS_CONTRACTS.getState,input),saveTemplate:input=>invoke(PROMOTIONS_CONTRACTS.saveTemplate,input),removeTemplate:input=>invoke(PROMOTIONS_CONTRACTS.removeTemplate,input),issue:input=>invoke(PROMOTIONS_CONTRACTS.issue,input),control:input=>invoke(PROMOTIONS_CONTRACTS.control,input),apply:input=>invoke(PROMOTIONS_CONTRACTS.apply,input),clear:input=>invoke(PROMOTIONS_CONTRACTS.clear,input),walletPay:input=>invoke(PROMOTIONS_CONTRACTS.walletPay,input),walletCancel:input=>invoke(PROMOTIONS_CONTRACTS.walletCancel,input)});
 const api: CashSlothApi = Object.freeze({
+ orders:Object.freeze<OrdersApi>({getSettings:input=>invoke(ORDERS_CONTRACTS.getSettings,input),setSettings:input=>invoke(ORDERS_CONTRACTS.setSettings,input),resetCounter:input=>invoke(ORDERS_CONTRACTS.resetCounter,input),openInfo:input=>invoke(ORDERS_CONTRACTS.openInfo,input),openKitchen:input=>invoke(ORDERS_CONTRACTS.openKitchen,input),book:input=>invoke(ORDERS_CONTRACTS.book,input),prepare:input=>invoke(ORDERS_CONTRACTS.prepare,input),board:input=>invoke(ORDERS_CONTRACTS.board,input),kitchen:input=>invoke(ORDERS_CONTRACTS.kitchen,input),open:input=>invoke(ORDERS_CONTRACTS.open,input),catalog:input=>invoke(ORDERS_CONTRACTS.catalog,input),submit:input=>invoke(ORDERS_CONTRACTS.submit,input),list:input=>invoke(ORDERS_CONTRACTS.list,input),accept:input=>invoke(ORDERS_CONTRACTS.accept,input),release:input=>invoke(ORDERS_CONTRACTS.release,input),status:input=>invoke(ORDERS_CONTRACTS.status,input)}),
  promotions,
   ticketdesk: Object.freeze({ open: (input: Record<string, never>) => invoke(TICKETDESK_CONTRACTS.open, input) }),
   tickets,

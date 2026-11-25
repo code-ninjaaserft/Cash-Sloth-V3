@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 export const IdentifierSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u);
+export const OrderContextSchema=z.strictObject({id:IdentifierSchema,number:z.number().int().min(1).max(99).nullable(),numbers:z.array(z.number().int().min(1).max(99)).max(99).readonly(),source:z.enum(['kiosk','register','table']),serviceLabel:z.string().trim().min(1).max(80).nullable()});
+export type OrderContext=z.infer<typeof OrderContextSchema>;
 export const RappenSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 export const RevisionSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const quantity = z.number().int().min(1).max(9999);
@@ -16,7 +18,7 @@ export const CheckoutAttemptSchema = z.strictObject({
   confirmedAt: timestamp.nullable(), saleId: IdentifierSchema.nullable(), createdAt: timestamp,
 });
 export const SalePaymentSchema = z.strictObject({ method: z.literal('cash'), cashReceivedRappen: RappenSchema, cashAppliedRappen: RappenSchema, changeRappen: RappenSchema, operatorConfirmed: z.literal(true), confirmedAt: timestamp });
-export const SaleSchema = z.strictObject({
+export const SaleSchema = z.strictObject({ order:OrderContextSchema.optional(),
   id: IdentifierSchema, idempotencyKey: IdentifierSchema, cartId: IdentifierSchema, cartRevision: RevisionSchema,
   completedAt: timestamp, items: z.array(CartItemSchema).min(1).max(1000).readonly(),
   subtotalRappen: RappenSchema, roundingAdjustmentRappen: z.number().int().min(-2).max(2), amountDueRappen: RappenSchema,

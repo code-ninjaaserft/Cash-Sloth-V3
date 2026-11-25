@@ -1,3 +1,5 @@
+import {createOrderService} from '@cash-sloth/application';
+import {createOrderStore} from './order-store.js';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -52,6 +54,22 @@ describe('SQL history and financial CSV export', () => {
     const prepared = value(pos.prepareCheckout({ cartId: saved.id, expectedRevision: saved.revision }));
     const completed = value(pos.completeSale({ idempotencyKey: prepared.idempotencyKey, cashReceivedRappen: prepared.amountDueRappen, operatorConfirmed: true }));
     return value(payments.getSaleDetails({ saleId: completed.id })).sale;
+  }
+  function buildSalesFixture(count:number):void {
+    // Batch fixture construction only. Other integration cases exercise real
+    // per-stage durable commits; this case tests read/query behavior at volume.
+    // Domain/use cases and SQL constraints still construct every stored record.
+    const fixtureTransaction = <T>(operation: () => T): T => operation();
+    pos = createPosService({ ...createPosStore(connection), transaction: fixtureTransaction }, runtime);
+    payments = createPaymentsService({ ...createFinanceStore(connection), transaction: fixtureTransaction }, runtime);
+    connection.sqlite.exec('BEGIN IMMEDIATE');
+    try { for (let index = 0; index < count; index++) serveFixture(sale('card', 100 + index)); connection.sqlite.exec('COMMIT'); }
+    catch (error) { if (connection.sqlite.isTransaction) connection.sqlite.exec('ROLLBACK'); throw error; }
+    bind();
+  }
+  function serveFixture(sale:FinancialSale):void {
+    if(!sale.order)return;const store=createOrderStore(connection);const service=createOrderService({...store,pos:{...store.pos,transaction:operation=>connection.sqlite.isTransaction?operation():store.pos.transaction(operation)}},runtime);let current=store.get(sale.order.id)!;
+    for(const preparation of ['preparing','ready','collected'] as const)current=value(service.prepare({orderId:current.id,expectedRevision:current.revision,operationId:runtime.newId(),preparation}));
   }
   function refund(original: FinancialSale, quantity: number, method: PaymentMethod = 'card') {
     const attempt = value(payments.prepareRefund({ saleId: original.id, idempotencyKey: runtime.newId(), method, items: [{ saleItemId: original.items[0]?.id ?? '', quantity }] }));
@@ -284,7 +302,7 @@ describe('SQL history and financial CSV export', () => {
     expect(search({}, { field: 'date', direction: 'desc' }).items.map((entry) => entry.id)).toEqual([...ascending].reverse().concat(low.id));
   });
   it('loads bounded pages beyond the original last-20 limitation', () => {
-    for (let index = 0; index < 128; index++) sale('card', 100 + index);
+    buildSalesFixture(128);
     const allIds = new Set<string>();
     for (let page = 1; page <= 6; page++) {
       const result = search({}, sort, page, 25); expect(result.total).toBe(128); expect(result.items.length).toBe(page === 6 ? 3 : 25);
@@ -293,16 +311,7 @@ describe('SQL history and financial CSV export', () => {
     expect(allIds.size).toBe(128); expect(search({}, sort, 7, 25).items).toEqual([]);
   });
   it('filters and exports a 1000-sale fixture without transferring unbounded history to the caller', () => {
-    // Batch fixture construction only. Other integration cases exercise real
-    // per-stage durable commits; this case tests read/query behavior at volume.
-    // Domain/use cases and SQL constraints still construct every stored record.
-    const fixtureTransaction = <T>(operation: () => T): T => operation();
-    pos = createPosService({ ...createPosStore(connection), transaction: fixtureTransaction }, runtime);
-    payments = createPaymentsService({ ...createFinanceStore(connection), transaction: fixtureTransaction }, runtime);
-    connection.sqlite.exec('BEGIN IMMEDIATE');
-    try { for (let index = 0; index < 1000; index++) sale('card', 100 + index); connection.sqlite.exec('COMMIT'); }
-    catch (error) { if (connection.sqlite.isTransaction) connection.sqlite.exec('ROLLBACK'); throw error; }
-    bind();
+    buildSalesFixture(1000);
     const page = search({ minTotalRappen: 900, maxTotalRappen: 999 }, { field: 'total', direction: 'asc' }, 3, 25);
     expect(page.total).toBe(100); expect(page.items).toHaveLength(25);
     expect(page.items.map((item) => item.actualPaidRappen)).toEqual(Array.from({ length: 25 }, (_, index) => 950 + index));
@@ -387,4 +396,15 @@ describe('SQL history and financial CSV export', () => {
     expect(JSON.stringify(oldPlan)).toContain('sales_history_total');
     expect(JSON.stringify(modernPlan)).toContain('financial_sales_history_total');
   });
+  it('finds immutable receipts by their stable barcode after restart and removes codes with a purged sale',()=>{
+    const original=sale('card',500),other=legacy(400);const code=value(history.getReceiptCode({saleId:original.id})),legacyCode=value(history.getReceiptCode({saleId:other.id}));expect(code).toMatch(/^CC[0-9A-F]{14}$/u);expect(legacyCode).not.toBe(code);
+    expect(search({receiptCode:code}).items.map(s=>s.id)).toEqual([original.id]);expect(search({receiptCode:legacyCode}).items.map(s=>s.id)).toEqual([other.id]);
+    connection.close();connection=openDatabase(databaseFile);runMigrations(connection);bind();expect(value(history.getReceiptCode({saleId:original.id}))).toBe(code);value(history.removeSale({saleId:original.id,reason:'Incorrect sale'}));expect(search({receiptCode:code}).items).toHaveLength(0);expect(connection.sqlite.prepare('SELECT code FROM receipt_codes WHERE sale_id=?').get(original.id)).toBeUndefined();
+  });
+  it('filters by exact order number and folded table/name with matching count and export selection',()=>{
+    const register=sale('card',500);const c=cart(900);const orders=createOrderService(createOrderStore(connection),runtime);const booking=value(orders.book({cartId:c.id,expectedRevision:c.revision,operationId:runtime.newId(),serviceLabel:'Tisch Müller 12'}));expect(booking.number).toBeNull();const chosen=value(orders.accept({orderId:booking.id,operationId:runtime.newId()}));const checkout=value(payments.startCheckout({cartId:chosen.id,expectedRevision:chosen.revision}));const a=value(payments.preparePayment({sessionId:checkout.session.id,idempotencyKey:runtime.newId(),method:'card',intendedRappen:900}));value(payments.confirmPayment({attemptId:a.id,operatorConfirmed:true}));const table=value(payments.completeCheckout({sessionId:checkout.session.id}));
+    expect(search({orderNumber:register.order!.number}).items.map(s=>s.id)).toEqual([register.id]);expect(search({serviceLabel:'muller'}).items.map(s=>s.id)).toEqual([table.id]);expect(search({serviceLabel:"' OR 1=1--"}).items).toHaveLength(0);expect(search({orderNumber:99}).total).toBe(0);
+    const exported=value(history.prepareExport({filters:{...filters,serviceLabel:'MÜLLER'},sort}));expect(exported.saleCount).toBe(1);expect(exported.files[0]!.content).toContain(table.id);expect(exported.files[0]!.content).not.toContain(register.id);
+  });
+
 });

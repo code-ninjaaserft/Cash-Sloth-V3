@@ -1,5 +1,6 @@
+import {createHash} from 'node:crypto';
 import {mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {afterEach,beforeEach,describe,it,expect} from 'vitest';
-import {createPromotionService,createPosService,createPaymentsService,createHistoryService} from '@cash-sloth/application';import type {Result} from '@cash-sloth/contracts';import {openDatabase,type DatabaseConnection} from './connection.js';import {runMigrations} from './migrations.js';import {seedDevelopmentCatalog} from './seed.js';import {createPromotionStore} from './promotion-store.js';import {createPosStore} from './pos-store.js';import {createFinanceStore} from './finance-store.js';import {createHistoryStore} from './history-store.js';
+import {createPromotionService,createPosService,createPaymentsService,createHistoryService} from '@cash-sloth/application';import type {Result} from '@cash-sloth/contracts';import {openDatabase,type DatabaseConnection} from './connection.js';import {migrations,runMigrations} from './migrations.js';import {seedDevelopmentCatalog} from './seed.js';import {createPromotionStore} from './promotion-store.js';import {createPosStore} from './pos-store.js';import {createFinanceStore} from './finance-store.js';import {createHistoryStore} from './history-store.js';
 function value<T>(result:Result<T>):T{if(!result.ok)throw new Error(result.error.code+': '+result.error.message);return result.value;}
 describe('discounts and local vouchers',()=>{
  let db:DatabaseConnection,directory:string,seq:number;const runtime={newId:()=>`promotion-${++seq}`,now:()=> '2026-11-24T12:00:00.000Z',newVoucherCode:(mode:'normal'|'demo')=>(mode==='demo'?'AD':'AC')+(++seq).toString(16).padStart(14,'0').toUpperCase()};
@@ -54,4 +55,39 @@ describe('discounts and local vouchers',()=>{
  it('completes a 100 percent discounted cart without collecting money',()=>{
   let c=cart();c=value(promo().apply({operationId:runtime.newId(),cartId:c.id,expectedRevision:c.revision,voucherCode:null,rule:{name:'Free',kind:'percent',value:10000,productId:null}}));expect(c.subtotalRappen).toBe(0);const sale=settle(c);expect(sale.actualPaidRappen).toBe(0);
  });
+ it('combines free goods, product discounts and basket discounts without restoring earlier prices',()=>{
+  const free=issue('freeProduct',0),other=issue('percent',1000),third=issue('amount',50);let c=cart(2);c=value(pos().addItem({cartId:c.id,expectedRevision:c.revision,variantId:'variant-coffee-default'}));
+  const apply=(code:string)=>{c=value(promo().apply({operationId:runtime.newId(),cartId:c.id,expectedRevision:c.revision,rule:null,voucherCode:code}));};
+  apply(free.code);expect(c.subtotalRappen).toBe(697);apply(other.code);expect(c.subtotalRappen).toBe(627);apply(third.code);expect(c.subtotalRappen).toBe(577);
+  expect(c.items.filter(i=>i.unitPriceRappen===0).reduce((s,i)=>s+i.quantity,0)).toBe(1);
+  expect(promo().apply({operationId:runtime.newId(),cartId:c.id,expectedRevision:c.revision,rule:null,voucherCode:free.code})).toMatchObject({ok:false,error:{code:'CONFLICT'}});
+  const sale=settle(c);expect(value(promo().getState({})).vouchers.every(v=>v.uses===1)).toBe(true);
+  value(createHistoryService(createHistoryStore(db),runtime).removeSale({saleId:sale.id,reason:'Incorrect sale'}));expect(value(promo().getState({})).vouchers.every(v=>v.uses===0)).toBe(true);
+ });
+ it('combines two free-product vouchers, persists reservations and clears all benefits without consuming them',()=>{
+  const first=issue('freeProduct',0),second=issue('freeProduct',0);let c=cart(3);
+  for(const voucher of [first,second])c=value(promo().apply({operationId:runtime.newId(),cartId:c.id,expectedRevision:c.revision,rule:null,voucherCode:voucher.code}));expect(c.subtotalRappen).toBe(247);
+  db.close();db=openDatabase(join(directory,'test.sqlite'));runMigrations(db);expect(value(pos().getCart({})).cart).toEqual(c);
+  c=value(promo().clear({operationId:runtime.newId(),cartId:c.id,expectedRevision:c.revision}));expect(c.subtotalRappen).toBe(741);expect(db.sqlite.prepare('SELECT count(*) n FROM cart_vouchers').get()?.['n']).toBe(0);expect(value(promo().getState({})).vouchers.every(v=>v.uses===0)).toBe(true);
+ });
+ it('combines value vouchers and returns partial refunds across original credits idempotently',()=>{
+  const first=issue('wallet',200),second=issue('wallet',294);const c=cart(2),checkout=value(pay().startCheckout({cartId:c.id,expectedRevision:c.revision}));
+  for(const voucher of [first,second])value(promo().walletPay({operationId:runtime.newId(),sessionId:checkout.session.id,code:voucher.code,amountRappen:voucher.value}));
+  const sale=value(pay().completeCheckout({sessionId:checkout.session.id}));expect(sale.payments.filter(p=>p.method==='voucher')).toHaveLength(2);
+  const refund=value(pay().prepareRefund({saleId:sale.id,idempotencyKey:runtime.newId(),method:'voucher',items:[{saleItemId:sale.items[0]!.id,quantity:1}]}));value(pay().confirmRefund({attemptId:refund.id,operatorConfirmed:true}));value(pay().confirmRefund({attemptId:refund.id,operatorConfirmed:true}));
+  let state=value(promo().getState({}));expect(state.vouchers.find(v=>v.code===first.code)!.balanceRappen).toBe(200);expect(state.vouchers.find(v=>v.code===second.code)!.balanceRappen).toBe(47);
+  const rest=value(pay().prepareRefund({saleId:sale.id,idempotencyKey:runtime.newId(),method:'voucher',items:[{saleItemId:sale.items[0]!.id,quantity:1}]}));value(pay().confirmRefund({attemptId:rest.id,operatorConfirmed:true}));state=value(promo().getState({}));expect(state.vouchers.find(v=>v.code===second.code)!.balanceRappen).toBe(294);
+ });
+
+ it('upgrades a populated version-16 database without losing reservations or redemptions',()=>{
+  db.close();db=openDatabase(join(directory,'version16.sqlite'));
+  db.sqlite.exec('CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,checksum TEXT NOT NULL,applied_at TEXT NOT NULL) STRICT');
+  db.sqlite.exec('BEGIN IMMEDIATE');for(const m of migrations.filter(m=>m.version<=16)){db.sqlite.exec(m.sql);db.sqlite.prepare('INSERT INTO schema_migrations VALUES(?,?,?,?)').run(m.version,m.name,createHash('sha256').update(m.sql).digest('hex'),runtime.now());}db.sqlite.exec('COMMIT');seedDevelopmentCatalog(db,'development');
+  const used=issue('freeProduct',0,2);let c=cart(2);c=value(promo().apply({operationId:runtime.newId(),cartId:c.id,expectedRevision:c.revision,rule:null,voucherCode:used.code}));const sale=settle(c);
+  const reserved=issue('amount',25);c=cart(2);c=value(promo().apply({operationId:runtime.newId(),cartId:c.id,expectedRevision:c.revision,rule:null,voucherCode:reserved.code}));runMigrations(db);
+  expect(value(promo().getState({})).vouchers.find(v=>v.code===used.code)!.uses).toBe(1);expect(value(pos().getCart({})).cart).toEqual(c);
+  const extra=issue('percent',1000);c=value(promo().apply({operationId:runtime.newId(),cartId:c.id,expectedRevision:c.revision,rule:null,voucherCode:extra.code}));settle(c);expect(value(promo().getState({})).vouchers.find(v=>v.code===reserved.code)!.uses).toBe(1);
+  expect(()=>db.sqlite.prepare('UPDATE financial_sales SET subtotal_rappen=0 WHERE id=?').run(sale.id)).toThrow();
+ });
+
 });

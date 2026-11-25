@@ -27,7 +27,7 @@ describe('bounded history and export contracts', () => {
     ]) expect(HistoryFiltersSchema.safeParse(candidate).success).toBe(false);
   });
   it('uses narrow unique channel names and rejects malformed output models', () => {
-    expect(Object.values(HISTORY_IPC_CONTRACTS).map((entry) => entry.channel)).toEqual(['history:previewRemoval', 'history:removeHistory', 'history:getEvents', 'history:removeSale', 'history:search', 'history:getSaleContext']);
+    expect(Object.values(HISTORY_IPC_CONTRACTS).map((entry) => entry.channel)).toEqual(['history:getReceiptCode', 'history:previewRemoval', 'history:removeHistory', 'history:getEvents', 'history:removeSale', 'history:search', 'history:getSaleContext']);
     expect(HISTORY_IPC_CONTRACTS.search.response.safeParse({ ok: true, value: { items: [], total: 0, page: 1, pageSize: 25 } }).success).toBe(true);
     expect(HISTORY_IPC_CONTRACTS.search.response.safeParse({ ok: true, value: { items: [], total: -1, page: 1, pageSize: 25 } }).success).toBe(false);
   });

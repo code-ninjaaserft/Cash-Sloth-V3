@@ -4,6 +4,7 @@ import type { HistoryFilters, HistoryPage, HistorySort, SaleHistoryContext } fro
 export interface NormalizedHistoryFilters extends Omit<HistoryFilters, 'dateFrom' | 'dateTo'> { readonly fromInclusive: string | null; readonly toExclusive: string | null }
 export interface HistoryExportRecord { readonly removedAt?: string | null; readonly removalReason?: string | null; readonly sale: FinancialSale; readonly refunds: readonly Refund[]; readonly context: SaleHistoryContext }
 export interface HistoryStore {
+  getReceiptCode?(saleId:string):string;
   previewRemoval?(scope: 'event' | 'device', eventId: string | null): { count: number; version: string };
   removeHistory?(input: { scope: 'event' | 'device'; eventId: string | null; operationId: string; expectedVersion: string; reason: string }, at: string): { removedCount: number };
   getEvents?(): { activeEventId: string | null; events: readonly { id: string; title: string }[] };

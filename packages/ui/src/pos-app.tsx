@@ -1,3 +1,7 @@
+import {useOrderSettings} from './order-settings.js';
+import {TableBooking} from './table-booking.js';
+import {OrderReference} from './order-reference.js';
+import {OrdersView} from './orders-view.js';
 import {PromotionManager} from './promotion-manager.js';
 import {CartDiscounts} from './cart-discounts.js';
 import { TeamStatistics } from './team-statistics.js';
@@ -116,7 +120,7 @@ function SaleReceipt({ sale, onNewSale }: { sale: Sale; onNewSale: () => void })
         <dt>{t("Cash applied")}</dt><dd>{formatChf(sale.payment.cashAppliedRappen)}</dd>
         <dt>{t("Change returned")}</dt><dd>{formatChf(sale.payment.changeRappen)}</dd>
       </dl>
-      <p className="receipt-footer">{t("Cash receipt explicitly confirmed by the operator at")}{' '}{displayDate(sale.payment.confirmedAt)}.<br />{t("Checkout reference:")}{' '}{sale.idempotencyKey}</p>
+      <OrderReference order={sale.order}/><p className="receipt-footer">{t("Cash receipt explicitly confirmed by the operator at")}{' '}{displayDate(sale.payment.confirmedAt)}.<br />{t("Checkout reference:")}{' '}{sale.idempotencyKey}</p>
       <button type="button" className="primary-button" onClick={onNewSale}>{t("Start new sale")}</button>
     </section>
   );
@@ -152,6 +156,8 @@ export function PosApp({ api, logo, cashArtwork, cashNoteArtwork, demoMode = fal
   const [catalogVersion, setCatalogVersion] = useState(0);
   const [salesHistoryState, setSalesHistoryState] = useState(initialSalesHistoryState);
   const [activeCheckout, setActiveCheckout] = useState<CheckoutView | null>(null);
+  const orderSettings=useOrderSettings(api?.orders);
+  const [ordersPayOpen,setOrdersPayOpen]=useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutRecovery, setCheckoutRecovery] = useState(false);
   const [financialReceipt, setFinancialReceipt] = useState<SaleDetails | null>(null);
@@ -317,6 +323,9 @@ export function PosApp({ api, logo, cashArtwork, cashNoteArtwork, demoMode = fal
     void perform(async () => { unwrap(await operation()); await loadCart(); setFeedback(message); });
   };
 
+  const payAcceptedOrder=async():Promise<void>=>{
+    if(!api)return;await loadCart();const current=unwrap(await api.pos.getCart({})).cart;const prepared=unwrap(await api.payments.startCheckout({cartId:current.id,expectedRevision:current.revision}));saveFinanceRecovery(operationStorage,{kind:'checkout',reference:prepared.session.id,attemptId:null,confirmationSubmitted:false});setOrdersPayOpen(false);setFinancialReceipt(null);setReceipt(null);navigate('pos');setActiveCheckout(prepared);setCheckoutRecovery(false);setCheckoutOpen(true);
+  };
   const prepare = (): void => {
     if (api === undefined || cart === null) return;
     void perform(async () => {
@@ -396,11 +405,11 @@ export function PosApp({ api, logo, cashArtwork, cashNoteArtwork, demoMode = fal
         <ApplicationNavigation view={view} onNavigate={navigate} expanded={applicationNavigationExpanded} onExpandedChange={setApplicationNavigationExpanded} onInteractionBlockedChange={setCategoryInteractionBlocked} developmentAllowed={demoAllowed} />
       </aside>
 
-      {view === 'promotions' ? api?.promotions ? <PromotionManager api={api}/> : <p>Gutscheine nicht verfügbar.</p> : view === 'team' ? api ? <TeamStatistics tickets={api.tickets} api={api.payments} /> : null : view === 'tickets' ? api?.tickets ? <TicketsView admin={api.tickets} api={api.tickets} ticketdesk={api.ticketdesk} /> : <p>{t('Tickets are unavailable on this host.')}</p> : view === 'presets' ? api ? <PresetsView api={api.presets} onChanged={(state) => {
+      {view === 'orders' ? api?.orders ? <OrdersView api={api.orders} onAccepted={payAcceptedOrder}/> : <p>{t('Orders are unavailable on this host.')}</p> : view === 'promotions' ? api?.promotions ? <PromotionManager api={api}/> : <p>Gutscheine nicht verfügbar.</p> : view === 'team' ? api ? <TeamStatistics tickets={api.tickets} api={api.payments} /> : null : view === 'tickets' ? api?.tickets ? <TicketsView admin={api.tickets} api={api.tickets} ticketdesk={api.ticketdesk} /> : <p>{t('Tickets are unavailable on this host.')}</p> : view === 'presets' ? api ? <PresetsView api={api.presets} onChanged={(state) => {
         setEventTitle(state.active?.name ?? null); setCustomLogo(state.active?.logo ?? null); setCatalogVersion((value) => value + 1); setProductBrowserState(initialProductBrowserState);
         try { if (!readFinanceRecovery(operationStorage) && !readCashRecovery(operationStorage)) { setFinancialReceipt(null); setReceipt(null); setRefundRecovery(null); } }
         catch { setError(t('The preset operation could not be confirmed. Check its stored result before continuing.')); }
-      }} onCatalog={() => navigate('catalog')} /> : <p>{t('The desktop bridge is unavailable.')}</p> : view === 'settings' ? <Settings ticketdesk={api?.ticketdesk} demo={api?.demo} demoMode={demoMode} customerDisplay={api?.customerDisplay} /> : view === 'system' ? <div className="pos-system-status"><FoundationStatus api={api} logo={logo} showBranding={false} />{capabilityError && <p role="alert" className="pos-error">{capabilityError}</p>}</div> : view === 'catalog' ? <div className="catalog-workspace">{api ? <CatalogEditor key={catalogVersion} api={api.catalog} reviewRequired={catalogReviewRequired} onReviewRequiredChange={setCatalogReviewRequired} /> : <p className="pos-error" role="alert">{t("The desktop bridge is unavailable.")}</p>}</div> : view === 'import' ? api ? <CatalogImport api={api} onImported={catalogImported} /> : <p role="alert">{t("The desktop bridge is unavailable.")}</p> : view === 'development' ? api ? <DevelopmentTools api={api} onImported={catalogImported} /> : <p role="alert">{t("The desktop bridge is unavailable.")}</p> : view === 'sales' ? api ? <SalesHistory api={api} onRemoved={historySaleRemoved} onCleared={(scope, eventId) => {
+      }} onCatalog={() => navigate('catalog')} /> : <p>{t('The desktop bridge is unavailable.')}</p> : view === 'settings' ? <Settings orders={api?.orders} ticketdesk={api?.ticketdesk} demo={api?.demo} demoMode={demoMode} customerDisplay={api?.customerDisplay} /> : view === 'system' ? <div className="pos-system-status"><FoundationStatus api={api} logo={logo} showBranding={false} />{capabilityError && <p role="alert" className="pos-error">{capabilityError}</p>}</div> : view === 'catalog' ? <div className="catalog-workspace">{api ? <CatalogEditor key={catalogVersion} api={api.catalog} reviewRequired={catalogReviewRequired} onReviewRequiredChange={setCatalogReviewRequired} /> : <p className="pos-error" role="alert">{t("The desktop bridge is unavailable.")}</p>}</div> : view === 'import' ? api ? <CatalogImport api={api} onImported={catalogImported} /> : <p role="alert">{t("The desktop bridge is unavailable.")}</p> : view === 'development' ? api ? <DevelopmentTools api={api} onImported={catalogImported} /> : <p role="alert">{t("The desktop bridge is unavailable.")}</p> : view === 'sales' ? api ? <SalesHistory api={api} onRemoved={historySaleRemoved} onCleared={(scope, eventId) => {
         if (financialReceipt && (scope === 'device' || (financialReceipt.sale.eventId ?? null) === eventId)) historySaleRemoved(financialReceipt.sale.id);
         if (receipt && (scope === 'device' || eventId === null)) historySaleRemoved(receipt.id);
       }} savedState={salesHistoryState} onStateChange={setSalesHistoryState} onOpen={async (saleId) => {
@@ -492,7 +501,7 @@ export function PosApp({ api, logo, cashArtwork, cashNoteArtwork, demoMode = fal
               }}>{t("Remove")}</button>
             </div>
           </article>)}</section>)}</div>
-          <div className="cart-summary">{api?.promotions&&cart&&<CartDiscounts api={api.promotions} cart={cart} disabled={locked} onChanged={loadCart}/>}
+          <div className="cart-summary"><div className="cart-order-tools">{api?.orders&&<button type="button" disabled={locked} onClick={()=>setOrdersPayOpen(true)}>{t("Pay orders")}</button>}{api?.promotions&&cart&&<CartDiscounts api={api.promotions} cart={cart} disabled={locked} onChanged={loadCart}/>}</div>{api?.orders&&cart&&orderSettings?.tableService&&<TableBooking api={api.orders} cart={cart} disabled={locked} onChanged={loadCart}/>}
             <div className="cart-total"><span>{t("Subtotal")}</span><strong data-testid="cart-subtotal">{formatChf(cart?.subtotalRappen ?? 0)}</strong></div>
             {registerVisible && <div className="cart-total"><span>{t("Payable total")}</span><strong data-testid="cart-payable">{payable === null ? '—' : formatChf(payable)}</strong></div>}
             <button type="button" id="start-checkout" className="primary-button" disabled={locked || cart === null || cart.items.length === 0} onClick={prepare}>{t("Checkout")}</button>
@@ -511,10 +520,11 @@ export function PosApp({ api, logo, cashArtwork, cashNoteArtwork, demoMode = fal
         }}>{t("Confirm clear cart")}</button><button type="button" className="subtle-button" disabled={busy} onClick={() => setConfirmClear(false)}>{t("Cancel")}</button></div>
       </Modal>}
 
-      {previewSale && <ReceiptPreview ticketsApi={api?.tickets} sale={previewSale} afterSale onClose={() => {
+      {previewSale && <ReceiptPreview historyApi={api?.history} ticketsApi={api?.tickets} sale={previewSale} afterSale onClose={() => {
         setPreviewSale(null); setFeedback(t('Transaction completed. Ready for the next sale.'));
         window.requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.product-card:not([aria-disabled="true"])')?.focus());
       }} />}
+      {ordersPayOpen&&api?.orders&&<Modal title={t("Pay orders")} className="order-payment-dialog" onClose={()=>setOrdersPayOpen(false)}><OrdersView api={api.orders} paymentOnly onAccepted={payAcceptedOrder}/></Modal>}
       {checkoutOpen && activeCheckout && api && <PaymentsCheckout promotions={api.promotions} customerDisplay={api.customerDisplay} cashNoteArtwork={cashNoteArtwork} cashArtwork={cashArtwork} key={activeCheckout.session.id} api={api.payments} initial={activeCheckout} recovery={checkoutRecovery} onChanged={(next) => { setActiveCheckout(next.session.status === 'open' ? next : null); }} onClose={() => { setCheckoutOpen(false); void loadCart(); }} onReconciliation={() => { setCheckoutOpen(false); navigate('reconciliation'); }} onComplete={async (sale, returnToRegister = false) => {
         if (returnToRegister) {
           await loadCart();

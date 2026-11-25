@@ -1,3 +1,5 @@
+import type {OrdersApi} from './orders.js';
+export * from './orders.js';
 import type {PromotionsApi} from './promotions.js';
 export * from './promotions.js';
 import type { TicketdeskControlApi } from './ticketdesk.js';
@@ -45,6 +47,7 @@ export const SystemInfoSchema = z.strictObject({
 export type SystemInfo = z.infer<typeof SystemInfoSchema>;
 
 export interface CashSlothApi {
+ readonly orders?:OrdersApi;
  readonly promotions?:PromotionsApi;
   readonly ticketdesk?: TicketdeskControlApi;
   readonly tickets?: TicketsApi;

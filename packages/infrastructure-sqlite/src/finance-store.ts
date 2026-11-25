@@ -1,3 +1,5 @@
+import {ensureReceiptCode} from './receipt-code.js';
+import {prepareCartOrder} from './order-persistence.js';
 import {completeBenefit,postWalletEntry} from './promotion-completion.js';
 import { issueSaleTickets } from './ticket-issuance.js';
 import {
@@ -89,6 +91,7 @@ export function createFinanceStore(connection: DatabaseConnection, hooks: PosSto
       requireTransaction(); const session = CheckoutSessionSchema.parse(input); validateCheckoutSession(session);
       const existing = store.getSession(session.id);
       if (existing === null) {
+        prepareCartOrder(connection,session.cart,session.createdAt);
         if (session.status !== 'open' || session.saleId !== null) conflict('New checkout sessions must be open.');
         const cart = pos.getCart(session.cart.id);
         if (!equal(cart, session.cart)) conflict('Checkout snapshot does not match the saved cart.');
@@ -177,6 +180,7 @@ export function createFinanceStore(connection: DatabaseConnection, hooks: PosSto
       if (!balance.settled || balance.finalPayableRappen !== sale.amountDueRappen || balance.roundingAdjustmentRappen !== sale.roundingAdjustmentRappen || !equal(allocations, sale.payments)) conflict('Sale payment allocations do not match durable confirmations.');
       sqlite.prepare('INSERT INTO financial_sales (id, session_id, cart_id, completed_at, actual_paid_rappen, data) VALUES (?, ?, ?, ?, ?, ?)')
         .run(sale.id, sale.checkoutSessionId, sale.cartId, sale.completedAt, sale.actualPaidRappen, JSON.stringify(sale));
+      ensureReceiptCode(connection,sale.id);
       issueSaleTickets(connection, sale);
       completeBenefit(connection,sale.cartId,sale.id,sale.completedAt);
     },
@@ -230,7 +234,18 @@ export function createFinanceStore(connection: DatabaseConnection, hooks: PosSto
       validateRefundHistory(sale, [...store.listRefunds(sale.id), refund]);
       sqlite.prepare('INSERT INTO refunds (id, idempotency_key, attempt_id, sale_id, amount_rappen, data) VALUES (?, ?, ?, ?, ?, ?)')
         .run(refund.id, refund.idempotencyKey, refund.attemptId, refund.saleId, refund.amountRappen, JSON.stringify(refund));
-      if(refund.method==='voucher'){const sale=store.getFinancialSale(refund.saleId);if(!sale)throw new Error('Missing voucher sale');const ledger=sqlite.prepare("SELECT l.code FROM wallet_ledger l JOIN payment_attempts a ON a.id=l.id WHERE l.session_id=? AND l.kind='pay' AND a.state='confirmed' ORDER BY l.rowid LIMIT 1").get(sale.checkoutSessionId);if(!ledger)throw new Error('Missing original voucher');postWalletEntry(connection,{id:refund.id,code:String(ledger['code']),sessionId:sale.checkoutSessionId,amountRappen:refund.amountRappen,kind:'refund',at:refund.completedAt});}
+      if(refund.method==='voucher'){
+        const sale=store.getFinancialSale(refund.saleId);if(!sale)throw new Error('Missing voucher sale');
+        const entries=sqlite.prepare("SELECT l.code,sum(-l.amount_rappen) amount FROM wallet_ledger l JOIN payment_attempts a ON a.id=l.id WHERE l.session_id=? AND l.kind='pay' AND a.state='confirmed' GROUP BY l.code ORDER BY min(l.rowid)").all(sale.checkoutSessionId);
+        if(!entries.length)throw new Error('Missing original voucher');
+        let remaining=refund.amountRappen;
+        for(const [index,entry] of entries.entries()){
+          const code=String(entry['code']);const returned=Number(sqlite.prepare("SELECT coalesce(sum(amount_rappen),0) n FROM wallet_ledger WHERE session_id=? AND code=? AND kind='refund'").get(sale.checkoutSessionId,code)?.['n']??0);
+          // Refund original voucher shares in order; any cash-paid remainder goes to the last voucher.
+          const share=index===entries.length-1?remaining:Math.min(remaining,Math.max(0,Number(entry['amount'])-returned));
+          if(share>0)postWalletEntry(connection,{id:refund.id+':'+index,code,sessionId:sale.checkoutSessionId,amountRappen:share,kind:'refund',at:refund.completedAt});remaining-=share;
+        }
+      }
     },
     appendEvent(input) {
       requireTransaction(); const event = FinancialEventSchema.parse(input);

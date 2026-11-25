@@ -1,3 +1,4 @@
+import {ensureReceiptCode} from './receipt-code.js';
 import { createHash } from 'node:crypto';
 import { purgeSale } from './purge-sale.js';
 import { DomainError, addMoney, assertFinancialTimestamp, validateFinancialSale, validateRefundHistory } from '@cash-sloth/domain';
@@ -62,6 +63,10 @@ function where(filters: NormalizedHistoryFilters): { sql: string; parameters: Pa
   if (filters.minTotalRappen !== null) add('h.actual_paid_rappen >= ?', filters.minTotalRappen);
   if (filters.maxTotalRappen !== null) add('h.actual_paid_rappen <= ?', filters.maxTotalRappen);
   if (filters.refundStatus !== 'all') add('h.refund_status = ?', filters.refundStatus);
+  const context="CASE WHEN h.source='legacy' THEN (SELECT data FROM legacy_order_context lc WHERE lc.sale_id=h.id) ELSE json_extract(h.data,'$.order') END";
+  if(filters.orderNumber!=null)add("(json_extract("+context+",'$.source')!='table' AND EXISTS(SELECT 1 FROM json_each("+context+",'$.numbers') n WHERE n.value=?))",filters.orderNumber);
+  if(filters.serviceLabel)add("instr(cash_sloth_history_fold(coalesce(json_extract("+context+",'$.serviceLabel'),'')),?)>0",folded(filters.serviceLabel));
+  if(filters.receiptCode)add('EXISTS(SELECT 1 FROM receipt_codes rc WHERE rc.sale_id=h.id AND rc.code=?)',filters.receiptCode);
   if (filters.saleId !== '') add('instr(lower(h.id), lower(?)) > 0', filters.saleId);
   if (filters.productQuery !== '') {
     const query = folded(filters.productQuery);
@@ -104,7 +109,7 @@ export function createHistoryStore(connection: DatabaseConnection): HistoryStore
     const refundedRappen = integer(row, 'refunded_rappen');
     if (refundedRappen > sale.actualPaidRappen) throw new Error('Persisted refund total exceeds actual payment.');
     const removal = sqlite.prepare('SELECT removed_at,reason FROM removed_history_sales WHERE sale_id=?').get(sale.id);
-    return SaleHistoryEntrySchema.parse({ tipRappen: sale.tipRappen ?? 0, eventId: sale.eventId ?? null, eventTitle: sale.eventTitle ?? null,
+    return SaleHistoryEntrySchema.parse({ ...(sale.order?{order:sale.order}:{}), tipRappen: sale.tipRappen ?? 0, eventId: sale.eventId ?? null, eventTitle: sale.eventTitle ?? null,
       removedAt: removal?.['removed_at'] ?? null, removalReason: removal?.['reason'] ?? null,
       id: sale.id, completedAt: sale.completedAt, subtotalRappen: sale.subtotalRappen,
       roundingAdjustmentRappen: sale.roundingAdjustmentRappen, actualPaidRappen: sale.actualPaidRappen,
@@ -120,6 +125,7 @@ export function createHistoryStore(connection: DatabaseConnection): HistoryStore
   };
   const removalPreview = (scope: 'event' | 'device', eventId: string | null) => { const ids = removalIds(scope, eventId); return { count: ids.length, version: createHash('sha256').update(JSON.stringify({ scope, eventId, ids })).digest('hex') }; };
   const store: HistoryStore = {
+    getReceiptCode(saleId){if(!finance.getFinancialSale(saleId))throw new DomainError('NOT_FOUND','Sale not found.');const code=ensureReceiptCode(connection,saleId);if(!code)throw new DomainError('NOT_SUPPORTED','Receipt barcodes are unavailable.');return code;},
     transaction,
     previewRemoval: (scope, eventId) => snapshot(() => removalPreview(scope, eventId)),
     removeHistory(input, at) {

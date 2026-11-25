@@ -75,7 +75,8 @@ export class CompleteSaleUseCase {
       const quote = calculateCashQuote(cart.subtotalRappen);
       if (quote.subtotalRappen !== attempt.subtotalRappen || quote.amountDueRappen !== attempt.amountDueRappen || quote.roundingAdjustmentRappen !== attempt.roundingAdjustmentRappen) throw new DomainError('CONFLICT', 'Checkout quote does not match the cart snapshot.');
       const payment = calculateCashPayment(attempt.amountDueRappen, attempt.cashReceivedRappen);
-      const sale: Sale = {
+      const order=this.store.prepareSaleOrder?.(cart,this.runtime.now());
+      const sale: Sale = { ...(order?{order}:{}),
         id: this.runtime.newId(), idempotencyKey: attempt.idempotencyKey,
         cartId: cart.id, cartRevision: cart.revision, completedAt: this.runtime.now(),
         items: cart.items.map((item) => ({ ...item })), ...quote,
@@ -124,6 +125,7 @@ export function createPosService(store: PosStore, runtime: PosRuntime): PosServi
       if (cart.items.length === 0) throw new DomainError('EMPTY_CART', 'Add a product before checkout.');
       const existing = store.getPendingCheckout(cart.id);
       if (existing?.status === 'prepared' && existing.cartRevision === cart.revision) return existing;
+      store.prepareSaleOrder?.(cart,runtime.now());
       const attempt: CheckoutAttempt = {
         idempotencyKey: runtime.newId(), cartId: cart.id, cartRevision: cart.revision,
         ...calculateCashQuote(cart.subtotalRappen), status: 'prepared', cashReceivedRappen: null,

@@ -1,0 +1,25 @@
+import React,{useEffect,useState} from 'react';
+import type {OrderInfoApi,KitchenApi,OrdersResponse} from '@cash-sloth/contracts';
+import {formatChf} from '@cash-sloth/domain';
+import {t,useAppearance,usePreferences} from './preferences.js';
+import {DemoBanner} from './demo-banner.js';import {useOrderAction,OrderRecovery} from './order-action.js';import {variantLabel} from './catalog-ui.js';import {orderSourceLabel} from './order-reference.js';
+type InfoState=Extract<OrdersResponse<'board'>,{ok:true}>['value'];
+type KitchenState=Extract<OrdersResponse<'kitchen'>,{ok:true}>['value'];
+export function OrderInfoBoard({api}:{api:OrderInfoApi|undefined}):React.JSX.Element{
+ useAppearance();usePreferences();const [state,setState]=useState<InfoState|null>(null),[error,setError]=useState(false);
+ useEffect(()=>{let stopped=false;let timer:ReturnType<typeof setTimeout>;const read=async()=>{try{const r=await api?.board({});if(!stopped){if(r?.ok){setState(r.value);setError(false);}else setError(true);}}catch{if(!stopped)setError(true);}if(!stopped)timer=setTimeout(()=>void read(),1000);};void read();return()=>{stopped=true;clearTimeout(timer);};},[api]);
+ return <>{state?.demoMode&&<DemoBanner/>}<main className="order-info-screen"><header>{state?.logo&&<img src={state.logo.dataUrl} alt={state.logo.name}/>}<div><p className="kiosk-step">{t('Order status')}</p><h1>{state?.eventTitle??'Cash Sloth V3'}</h1></div></header>{error&&<p role="alert">{t('Connection interrupted. Display may be out of date.')}</p>}<div className="order-info-columns">{(['received','preparing','ready'] as const).map(status=><section key={status} data-preparation={status}><h2>{t(status==='received'?'Received':status==='preparing'?'In preparation':'Ready for collection')}</h2><div className="order-number-grid">{!error&&state?.orders.filter(o=>o.preparation===status).map(o=><strong key={o.id}>#{o.number}</strong>)}</div></section>)}</div></main></>;
+}
+export function KitchenBoard({api}:{api:KitchenApi|undefined}):React.JSX.Element{
+ useAppearance();usePreferences();const [initial,setInitial]=useState<KitchenState|null>(null),[error,setError]=useState(false);
+ useEffect(()=>{if(initial)return;let active=true;const read=async()=>{try{const r=await api?.kitchen({});if(active&&r?.ok){setInitial(r.value);setError(false);}else if(active)setError(true);}catch{if(active)setError(true);}};void read();const timer=setInterval(()=>void read(),1500);return()=>{active=false;clearInterval(timer);};},[api,initial]);
+ return api&&initial?<KitchenDesk key={initial.demoSessionId??'live'} api={api} initial={initial}/>:<p role="status">{t(error?'Orders could not be loaded.':'Loading orders…')}</p>;
+}
+function KitchenDesk({api,initial}:{api:KitchenApi;initial:KitchenState}):React.JSX.Element{
+ const [state,setState]=useState<KitchenState>(initial),[error,setError]=useState<string|null>(null);
+ const refresh=async()=>{const r=await api.kitchen({});if(!r.ok)throw new Error(t(r.error.message));setState(r.value);};
+ const action=useOrderAction(api,'cash-sloth.kitchen-preparation.'+(initial.demoSessionId??(initial.demoMode?'demo':'live')),async()=>{await refresh();});
+ useEffect(()=>{let stopped=false;let timer:ReturnType<typeof setTimeout>;const read=async()=>{try{const r=await api.kitchen({});if(!stopped){if(r.ok){setState(r.value);setError(null);}else setError(t(r.error.message));}}catch{if(!stopped)setError(t('Orders could not be loaded.'));}if(!stopped)timer=setTimeout(()=>void read(),1000);};void read();return()=>{stopped=true;clearTimeout(timer);};},[api]);
+ const disabled=action.busy||!!action.pending||!!error;
+ return <>{state?.demoMode&&<DemoBanner/>}<main className="kitchen-screen"><header><p className="kiosk-step">{t('Kitchen / bar')}</p><h1>{state?.eventTitle??'Cash Sloth V3'}</h1></header><OrderRecovery action={action}/>{error&&<p role="alert">{error}</p>}<div className="kitchen-columns">{(['received','preparing','ready'] as const).map(status=><section key={status}><h2>{t(status==='received'?'Received':status==='preparing'?'In preparation':'Ready for collection')}</h2>{state?.orders.filter(o=>o.preparation===status).slice().reverse().map(o=><article className="order-card" key={o.id}><header><h2>{o.source==='table'?o.serviceLabel:'#'+o.number}</h2><span>{orderSourceLabel(o.source)}</span></header>{o.serviceLabel&&<h3>{t('Table / name')}: {o.serviceLabel}</h3>}<small>{new Date(o.createdAt).toLocaleTimeString()} · {t(o.paid?'Paid':'Not paid yet')}</small><ul>{o.cart.items.map(i=><li key={i.id}><b>{i.quantity}×</b> {i.productName} — {variantLabel(i.variantName)}</li>)}</ul><span>{formatChf(o.cart.subtotalRappen)}</span><button className="primary-button" disabled={disabled} onClick={()=>action.run('prepare',{orderId:o.id,expectedRevision:o.revision,operationId:window.crypto.randomUUID(),preparation:status==='received'?'preparing':status==='preparing'?'ready':'collected'})}>{t(status==='received'?'Accept order':status==='preparing'?'Mark ready':'Mark collected')}</button></article>)}</section>)}</div></main></>;
+}

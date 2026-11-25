@@ -4,7 +4,7 @@ import React from 'react';
  */
 const symbols: Readonly<Record<string, number>> = { '0':0x034,'1':0x121,'2':0x061,'3':0x160,'4':0x031,'5':0x130,'6':0x070,'7':0x025,'8':0x124,'9':0x064,A:0x109,B:0x049,C:0x148,D:0x019,E:0x118,F:0x058,S:0x046,'*':0x094 };
 export function ticketBarcodeBars(code: string): { bars: readonly { x: number; width: number }[]; width: number } {
- if (!/^(?:CS|DS|AC|AD)[0-9A-F]{14}$/u.test(code)) throw new Error('Invalid ticket barcode.');
+ if (!/^(?:CS|DS|AC|AD|CC|DC)[0-9A-F]{14}$/u.test(code)) throw new Error('Invalid ticket barcode.');
  let x=10; const bars: { x: number; width: number }[] = [];
  for (const character of '*' + code + '*') {
   const symbol = symbols[character]; if (symbol === undefined) throw new Error('Unknown barcode symbol.');

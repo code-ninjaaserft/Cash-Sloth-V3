@@ -12,12 +12,13 @@ test('demo sales stay isolated, both screens are marked, mode changes require id
   let app = await launch();
   try {
     let page = await app.firstWindow();
-    const finishCashSale = async () => {
+    const finishCashSale = async (prefix='CC') => {
       await page.getByRole('button', { name: 'Add Chocolate', exact: true }).click();
       await page.getByRole('button', { name: 'Checkout', exact: true }).click();
       await page.getByRole('button', { name: 'Cash', exact: true }).click();
       await page.getByRole('button', { name: 'Add cash CHF 10.00', exact: true }).click();
       await page.getByRole('button', { name: 'Complete transaction', exact: true }).click();
+      await expect(page.locator('.receipt-barcode code')).toHaveText(new RegExp('^'+prefix+'[0-9A-F]{14}$'));
       await page.getByRole('button', { name: 'Do not print', exact: true }).click();
     };
     await finishCashSale();
@@ -35,7 +36,7 @@ test('demo sales stay isolated, both screens are marked, mode changes require id
     await expect(customer.locator('.demo-banner')).toContainText('DEMO MODE');
     const categoriesBefore = await page.evaluate(() => window.cashSloth!.catalog.listCategories({ includeInactive: true }));
     expect(await page.evaluate(() => window.cashSloth!.catalog.createCategory({ name: 'Demo only', parentId: null, active: true, position: 99 }))).toMatchObject({ ok: true });
-    await finishCashSale();
+    await finishCashSale('DC');
     expect(await page.evaluate(() => window.cashSloth!.payments.listRecentSales({}))).toEqual(realHistory);
     // History removal must never touch the real ledger during demonstration.
     expect(await page.evaluate(async () => { try { await window.cashSloth!.history.removeSale({ saleId: 'any-sale', reason: 'demo' }); return false; } catch { return true; } })).toBe(true);

@@ -1,3 +1,4 @@
+import {OrderReference} from './order-reference.js';
 import { operationStorage } from './operation-storage.js';
 import { ReceiptPreview } from './receipt-preview.js';
 import { variantLabel } from './catalog-ui.js';
@@ -173,7 +174,7 @@ export function FinancialSaleDetails({ api, ticketsApi, historyApi, initial, onN
     <span className="receipt-label">{t("Committed ·")}{' '}{sale.payments.map((payment) => paymentMethodLabel(payment.method)).join(' + ')}</span>
     <h2 ref={heading} tabIndex={-1}>{t("Sale completed")}</h2>
     {error && <div role="alert" className="pos-error">{error}</div>}
-    <p className="receipt-meta">{t("Sale")}{' '}<strong data-testid="receipt-sale-id">{sale.id}</strong><br />{financialDate(sale.completedAt)}</p>
+    <OrderReference order={sale.order}/><p className="receipt-meta">{t("Sale")}{' '}<strong data-testid="receipt-sale-id">{sale.id}</strong><br />{financialDate(sale.completedAt)}</p>
     <table className="receipt-items"><thead><tr><th scope="col">{t("Item")}</th><th scope="col">{t("Qty")}</th><th scope="col">{t("Total")}</th></tr></thead><tbody>{sale.items.map((item) => <tr key={item.id}><td>{item.productName}<small>{item.variantName} · {formatChf(item.unitPriceRappen)}{' '}{t("each")}</small></td><td>{item.quantity}<small>{details.items.find((candidate) => candidate.saleItemId === item.id)?.quantityRemaining ?? 0}{' '}{t("refundable")}</small></td><td>{formatChf(item.lineTotalRappen)}</td></tr>)}</tbody></table>
     <dl className="receipt-totals"><dt>{t("Subtotal")}</dt><dd>{formatChf(sale.subtotalRappen)}</dd>{(sale.tipRappen ?? 0) > 0 && <><dt>{t("Tip")}</dt><dd>{formatChf(sale.tipRappen ?? 0)}</dd></>}<dt>{t("Cash rounding")}</dt><dd>{signedChf(sale.roundingAdjustmentRappen)}</dd><dt className="receipt-final">{t("Amount due")}</dt><dd className="receipt-final">{formatChf(sale.amountDueRappen)}</dd><dt>{t("Actual recorded payment total")}</dt><dd>{formatChf(sale.actualPaidRappen)}</dd></dl>
     <section className="payment-history" aria-label={t("Recorded sale payments")}><h3>{t("Payment history")}</h3>{sale.payments.map((payment) => <article className="payment-allocation" key={payment.attemptId}><span><strong>{paymentMethodLabel(payment.method)} · {formatChf(payment.amountRappen)}</strong><small>{t("Operator confirmed")}{' '}{financialDate(payment.confirmedAt)}<br />{payment.cashTenderedRappen !== null && <>{t("Cash received")}{' '}{formatChf(payment.cashTenderedRappen)}{' '}{t("· Cash applied")}{' '}{formatChf(payment.amountRappen)}{' '}{t("· Change returned")}{' '}{formatChf(payment.changeRappen)}<br /></>}{payment.attemptId}</small></span><span className="payment-status">{t("Recorded")}</span></article>)}</section>
@@ -186,7 +187,7 @@ export function FinancialSaleDetails({ api, ticketsApi, historyApi, initial, onN
     {contextError && <p className="receipt-meta">{t("Reconciliation status could not be refreshed. Original sale and refund records remain shown above; use Reconciliation to investigate.")}</p>}
     <p className="receipt-footer">{t("Operator confirmation is a local assertion, not independent provider verification.")}<br />{t("Checkout reference:")}{' '}{sale.checkoutSessionId}</p>
     <div className="receipt-actions"><button type="button" className="subtle-button" onClick={() => setPreviewOpen(true)}>{t('View / print receipt')}</button><button type="button" id="receipt-new-sale" className="primary-button" onClick={onNewSale}>{t("Start new sale")}</button><button type="button" className="subtle-button" disabled={details.items.every((item) => item.quantityRemaining === 0) || outstanding.length > 0} onClick={() => openRefund(null)}>{t("Refund sale")}</button></div>
-    {previewOpen && <ReceiptPreview ticketsApi={ticketsApi} sale={sale} onClose={() => setPreviewOpen(false)} />}
+    {previewOpen && <ReceiptPreview historyApi={historyApi} ticketsApi={ticketsApi} sale={sale} onClose={() => setPreviewOpen(false)} />}
     {refundOpen && <RefundDialog api={api} details={details} initialAttempt={selectedAttempt} onUpdate={(next) => { setDetails(next); onDetailsChanged(next); }} onClose={() => setRefundOpen(false)} onReconciliation={() => { setRefundOpen(false); onReconciliation(); }} />}
   </section>;
 }

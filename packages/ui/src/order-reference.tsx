@@ -1,0 +1,3 @@
+import React from 'react';import type {OrderContext} from '@cash-sloth/contracts';import {t} from './preferences.js';
+export const orderSourceLabel=(source:OrderContext['source']):string=>t(source==='kiosk'?'Self-service':source==='table'?'Table service':'Register');
+export function OrderReference({order}:{order:OrderContext|undefined}):React.JSX.Element|null{return order?<span className="order-reference">{order.source!=='table'&&order.numbers.length>0&&<strong className="order-reference-number">{t('Order number')}: <b>{order.numbers.map(n=>'#'+n).join(', ')}</b></strong>}{order.serviceLabel&&<span>{t('Table / name')}: {order.serviceLabel}</span>}<span>{t('Recorded at')}: {orderSourceLabel(order.source)}</span></span>:null;}

@@ -1,10 +1,11 @@
 import {VoucherSchema} from '@cash-sloth/contracts';import {DomainError} from '@cash-sloth/domain';import type {DatabaseConnection} from './connection.js';
 export function completeBenefit(connection:DatabaseConnection,cartId:string,saleId:string,at:string):void{
  const {sqlite}=connection;if(!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE name='vouchers'").get())return;if(!sqlite.isTransaction)throw new Error('Transaction required.');
- const row=sqlite.prepare('SELECT v.data FROM cart_vouchers c JOIN vouchers v ON v.code=c.code WHERE c.cart_id=?').get(cartId);if(!row)return;const voucher=VoucherSchema.parse(JSON.parse(String(row['data'])) as unknown);
+ const rows=sqlite.prepare('SELECT v.data FROM cart_vouchers c JOIN vouchers v ON v.code=c.code WHERE c.cart_id=?').all(cartId);for(const row of rows){const voucher=VoucherSchema.parse(JSON.parse(String(row['data'])) as unknown);
  if(voucher.mode!==(connection.ticketMode??'normal')||voucher.kind==='wallet'||voucher.revokedAt)throw new DomainError('CONFLICT','Reserved voucher is no longer valid.');
  const count=Number(sqlite.prepare('SELECT count(*) n FROM benefit_redemptions WHERE code=?').get(voucher.code)?.['n']??0);if(voucher.maxUses!==null&&count>=voucher.maxUses)throw new DomainError('CONFLICT','Voucher exhausted.');
  sqlite.prepare('INSERT INTO benefit_redemptions VALUES(?,?,?)').run(saleId,voucher.code,at);
+ }
  sqlite.prepare('DELETE FROM cart_vouchers WHERE cart_id=?').run(cartId);
 }
 

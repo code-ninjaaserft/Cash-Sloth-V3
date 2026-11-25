@@ -21,6 +21,7 @@ export function createHistoryService(store: HistoryStore, runtime: Pick<PosRunti
     } catch (error) { return HISTORY_IPC_CONTRACTS[method].response.parse(failure(error)) as HistoryResponse<K>; }
   }
   return {
+    getReceiptCode:request=>safe('getReceiptCode',request,()=>{if(!store.getReceiptCode)throw new DomainError('NOT_SUPPORTED','Receipt barcodes are unavailable.');return store.getReceiptCode(request.saleId);}),
     previewRemoval: (request) => safe('previewRemoval', request, () => { if (!store.previewRemoval) throw new DomainError('NOT_SUPPORTED', 'History deletion is unavailable.'); return store.previewRemoval(request.scope, request.eventId); }),
     removeHistory: (request) => safe('removeHistory', request, () => { if (!store.removeHistory) throw new DomainError('NOT_SUPPORTED', 'History deletion is unavailable.'); const at = runtime.now(); assertFinancialTimestamp(at); return store.removeHistory(request, at); }),
     getEvents: (request) => safe('getEvents', request, () => {

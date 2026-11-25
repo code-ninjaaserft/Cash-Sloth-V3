@@ -1,3 +1,5 @@
+import {OrderSettingsPanel} from './order-settings.js';
+import type {OrdersApi} from '@cash-sloth/contracts';
 import { TicketdeskButton } from './ticketdesk-button.js';
 import { parseCustomLogo, type CustomLogo } from './custom-logo.js';
 import type { TicketdeskControlApi, DemoApi, CustomerDisplayApi } from '@cash-sloth/contracts';
@@ -101,7 +103,7 @@ export function useAppearance(): void {
     return () => media.removeEventListener('change', apply);
   }, [theme, locale, accent]);
 }
-export function Settings({ customerDisplay, ticketdesk, demo, demoMode = false }: { customerDisplay?: CustomerDisplayApi | undefined; ticketdesk?: TicketdeskControlApi | undefined; demo?: DemoApi | undefined; demoMode?: boolean }): React.JSX.Element {
+export function Settings({ orders, customerDisplay, ticketdesk, demo, demoMode = false }: { orders?:OrdersApi|undefined; customerDisplay?: CustomerDisplayApi | undefined; ticketdesk?: TicketdeskControlApi | undefined; demo?: DemoApi | undefined; demoMode?: boolean }): React.JSX.Element {
   const value = usePreferences();
   const [switchingDemo, setSwitchingDemo] = useState(false);
   const [demoError, setDemoError] = useState<string | null>(null);
@@ -115,6 +117,7 @@ export function Settings({ customerDisplay, ticketdesk, demo, demoMode = false }
   const duplicateName = value.savedColors.some((entry) => entry.name.toLocaleLowerCase() === colorName.trim().toLocaleLowerCase());
   return <main className="pos-content settings-page">
     <section className="settings-card"><h2>{t("Cash drawer")}</h2><button type="button" disabled>{t("Open drawer")}</button><p>{t("Placeholder — the cash drawer is not connected yet.")}</p></section><header className="pos-heading"><div><span className="pos-label">Cash Sloth V3</span><h1>{t('Settings')}</h1><p>{t('Changes apply immediately and are saved on this device.')}</p></div></header>
+    {orders&&<OrderSettingsPanel api={orders}/>}
     {demo && <section className="settings-card"><h2>{t('Demo mode')}</h2><p>{t('Demonstrate sales without changing real history, revenue, products or presets. Demo changes are discarded when you leave. Restarting returns to normal mode.')}</p>
       <button type="button" aria-pressed={demoMode} disabled={switchingDemo} onClick={async () => {
         setSwitchingDemo(true); setDemoError(null);

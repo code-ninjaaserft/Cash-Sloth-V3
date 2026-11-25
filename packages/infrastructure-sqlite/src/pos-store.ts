@@ -1,6 +1,8 @@
+import {ensureReceiptCode} from './receipt-code.js';
+import {hasOrderService,prepareCartOrder} from './order-persistence.js';
 import {completeBenefit} from './promotion-completion.js';
 import { issueSaleTickets } from './ticket-issuance.js';
-import { DomainError, addMoney, assertIdentifier, multiplyMoney, validateCart, validateCheckoutAttempt, validateSale, type Cart, type CartItem, type CatalogItem, type CheckoutAttempt, type Sale } from '@cash-sloth/domain';
+import { assertOrderItemsUnchanged, DomainError, addMoney, assertIdentifier, multiplyMoney, validateCart, validateCheckoutAttempt, validateSale, type Cart, type CartItem, type CatalogItem, type CheckoutAttempt, type Sale } from '@cash-sloth/domain';
 import { PersistenceError, type PosStore } from '@cash-sloth/application';
 import { CartSchema, CatalogItemSchema, CheckoutAttemptSchema, SaleSchema } from '@cash-sloth/contracts';
 import type { DatabaseConnection } from './connection.js';
@@ -84,6 +86,7 @@ export function createPosStore(connection: DatabaseConnection, hooks: PosStoreTe
     if (payment === undefined) throw new Error('Missing persisted sale payment.');
     if (payment['method'] !== 'cash' || payment['operator_confirmed'] !== 1) throw new Error('Invalid persisted cash confirmation.');
     const sale = SaleSchema.parse({
+      ...(hasOrderService(connection)?(()=>{const row=sqlite.prepare('SELECT data FROM legacy_order_context WHERE sale_id=?').get(saleId);return row?{order:JSON.parse(String(row['data'])) as unknown}:{};})():{}),
       id: saleId, idempotencyKey: id(row, 'idempotency_key'), cartId: id(row, 'cart_id'),
       cartRevision: integer(row, 'cart_revision'), completedAt: text(row, 'completed_at'),
       subtotalRappen: integer(row, 'subtotal_rappen'), roundingAdjustmentRappen: integer(row, 'rounding_adjustment_rappen'),
@@ -100,6 +103,7 @@ export function createPosStore(connection: DatabaseConnection, hooks: PosStoreTe
   };
 
   const store: PosStore = {
+    prepareSaleOrder:(cart,at)=>prepareCartOrder(connection,cart,at),
     assertNoFinancialCheckout() {
       if (hasFinanceJournal() && sqlite.prepare(`SELECT 1 FROM payment_sessions WHERE state = 'open'
         UNION ALL SELECT 1 FROM refund_attempts WHERE state IN ('reported', 'uncertain') LIMIT 1`).get() !== undefined) {
@@ -165,6 +169,16 @@ export function createPosStore(connection: DatabaseConnection, hooks: PosStoreTe
       if (result.changes !== 1) throw new DomainError('CART_CONFLICT', 'The cart changed. Reload it before retrying.');
       sqlite.prepare('DELETE FROM cart_items WHERE cart_id = ?').run(cart.id);
       writeItems(cart);
+      if(hasOrderService(connection)){
+        const linked=sqlite.prepare("SELECT * FROM kiosk_orders WHERE cart_id=? AND status='register'").all(cart.id);
+        if(linked.length){
+          if(linked.some(o=>o['source']!=='register')){
+            const ordered=linked.flatMap(o=>{const original=CartSchema.parse((JSON.parse(String(o['data'])) as {cart:unknown}).cart);validateCart(original);return original.items;});
+            assertOrderItemsUnchanged(cart.items,ordered);
+          }else if(!cart.items.length)sqlite.prepare("UPDATE kiosk_orders SET status='cancelled',prep_status='cancelled',revision=revision+1 WHERE cart_id=? AND status='register'").run(cart.id);
+          else sqlite.prepare("UPDATE kiosk_orders SET data=json_set(data,'$.cart',json(?)),revision=revision+1 WHERE cart_id=? AND status='register'").run(JSON.stringify(cart),cart.id);
+        }
+      }else if(!cart.items.length&&sqlite.prepare("SELECT 1 FROM sqlite_master WHERE name='kiosk_orders'").get()&&sqlite.prepare("SELECT 1 FROM kiosk_orders WHERE cart_id=? AND status='register'").get(cart.id))throw new DomainError('CONFLICT','Release the unpaid order under Orders before emptying its cart.');
       if(hasPromotions()&&!cart.items.some(item=>item.originalUnitPriceRappen!==undefined))sqlite.prepare('DELETE FROM cart_vouchers WHERE cart_id=?').run(cart.id);
     },
     getPendingCheckout(cartId) {
@@ -229,6 +243,8 @@ export function createPosStore(connection: DatabaseConnection, hooks: PosStoreTe
         change_rappen, operator_confirmed_at, operator_confirmed) VALUES (?, 'cash', ?, ?, ?, ?, 1)`)
         .run(sale.id, sale.payment.cashReceivedRappen, sale.payment.cashAppliedRappen, sale.payment.changeRappen, sale.payment.confirmedAt);
       sqlite.prepare('UPDATE sales SET sealed = 1 WHERE id = ?').run(sale.id);
+      if(sale.order&&hasOrderService(connection))sqlite.prepare('INSERT INTO legacy_order_context VALUES(?,?)').run(sale.id,JSON.stringify(sale.order));
+      ensureReceiptCode(connection,sale.id);
       if (hasTickets()) issueSaleTickets(connection, sale);
       completeBenefit(connection,sale.cartId,sale.id,sale.completedAt);
     },

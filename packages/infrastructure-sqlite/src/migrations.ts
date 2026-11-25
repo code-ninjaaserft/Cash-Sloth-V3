@@ -1,3 +1,8 @@
+import {rejectedOrderNumbersMigration} from './migrations/0021-rejected-order-numbers.js';
+import {orderOptionsMigration} from './migrations/0020-order-options.js';
+import {orderServiceMigration} from './migrations/0019-order-service.js';
+import { kioskOrdersMigration } from './migrations/0018-kiosk-orders.js';
+import { combinedVouchersMigration } from './migrations/0017-combined-vouchers.js';
 import { promotionsMigration } from './migrations/0016-promotions.js';
 import { teamTicketControlsMigration } from './migrations/0015-team-ticket-controls.js';
 import { ticketsMigration } from './migrations/0014-tickets.js';
@@ -18,7 +23,7 @@ import { salesHistoryIndexesMigration } from './migrations/0005-sales-history-in
 
 import { categoryColorsMigration } from './migrations/0006-category-colors.js';
 
-export const migrations = [firstSaleMigration, catalogManagementMigration, paymentsRefundsMigration, managementImportMigration, salesHistoryIndexesMigration, categoryColorsMigration, eventPresetsMigration, catalogLifecycleMigration, variantLifecycleMigration, historyVisibilityMigration, checkoutTipsMigration, salePurgeMigration, historyBulkRemovalMigration, ticketsMigration, teamTicketControlsMigration, promotionsMigration] as const;
+export const migrations = [firstSaleMigration, catalogManagementMigration, paymentsRefundsMigration, managementImportMigration, salesHistoryIndexesMigration, categoryColorsMigration, eventPresetsMigration, catalogLifecycleMigration, variantLifecycleMigration, historyVisibilityMigration, checkoutTipsMigration, salePurgeMigration, historyBulkRemovalMigration, ticketsMigration, teamTicketControlsMigration, promotionsMigration, combinedVouchersMigration, kioskOrdersMigration, orderServiceMigration, orderOptionsMigration, rejectedOrderNumbersMigration] as const;
 
 /** Additive, versioned migration ledger. Never infer a schema by deleting data. */
 export function runMigrations(connection: DatabaseConnection): void {

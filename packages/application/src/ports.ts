@@ -1,7 +1,8 @@
-import type { Cart, CatalogItem, CheckoutAttempt, Sale } from '@cash-sloth/domain';
+import type { OrderContext, Cart, CatalogItem, CheckoutAttempt, Sale } from '@cash-sloth/domain';
 
 /** Synchronous transaction callback; return only after a confirmed COMMIT. */
 export interface PosStore {
+  prepareSaleOrder?(cart:Cart,at:string):OrderContext|undefined;
   /** Optional until migration 3; implemented by hosts that expose payment sessions. */
   assertNoFinancialCheckout?(): void;
   transaction<T>(operation: () => T): T;

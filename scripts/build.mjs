@@ -18,3 +18,9 @@ await bundle({ ...common, entryPoints: ['apps/desktop/src/preload.ts'], outfile:
 await bundle({ ...common, entryPoints: ['apps/desktop/src/customer-preload.ts'], outfile: 'apps/desktop/dist/customer-preload.cjs', format: 'cjs', external: ['electron'] });
 await bundle({ ...common, entryPoints: ['apps/desktop/src/ticketdesk-preload.ts'], outfile: 'apps/desktop/dist/ticketdesk-preload.cjs', format: 'cjs', external: ['electron'] });
 await bundle({ ...common, entryPoints: ['apps/pi-host/src/main.ts'], outfile: 'apps/pi-host/dist/main.mjs', format: 'esm' });
+
+await bundle({ ...common, entryPoints: ['apps/desktop/src/kiosk-preload.ts'], outfile: 'apps/desktop/dist/kiosk-preload.cjs', format: 'cjs', external: ['electron'] });
+
+await bundle({ ...common, entryPoints: ['apps/desktop/src/order-info-preload.ts'], outfile: 'apps/desktop/dist/order-info-preload.cjs', format: 'cjs', external: ['electron'] });
+
+await bundle({ ...common, entryPoints: ['apps/desktop/src/kitchen-preload.ts'], outfile: 'apps/desktop/dist/kitchen-preload.cjs', format: 'cjs', external: ['electron'] });

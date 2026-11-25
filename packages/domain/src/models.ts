@@ -67,7 +67,9 @@ export interface SalePayment {
   readonly confirmedAt: string;
 }
 export type SaleItem = CartItem;
+export interface OrderContext {readonly id:string;readonly number:number|null;readonly numbers:readonly number[];readonly source:'kiosk'|'register'|'table';readonly serviceLabel:string|null}
 export interface Sale {
+ readonly order?:OrderContext|undefined;
   readonly id: SaleId;
   readonly idempotencyKey: IdempotencyKey;
   readonly cartId: CartId;
@@ -78,4 +80,13 @@ export interface Sale {
   readonly roundingAdjustmentRappen: number;
   readonly amountDueRappen: number;
   readonly payment: SalePayment;
+}
+
+export function validateOrderContext(order:OrderContext):void{
+ assertIdentifier(order.id);if((order.number!==null&&(!Number.isSafeInteger(order.number)||order.number<1||order.number>99))||!Array.isArray(order.numbers)||(order.number===null?(order.source!=='table'||order.numbers.length!==0):order.numbers[0]!==order.number)||order.numbers.length>99||new Set(order.numbers).size!==order.numbers.length||order.numbers.some(n=>!Number.isSafeInteger(n)||n<1||n>99)||!['kiosk','register','table'].includes(order.source)||order.serviceLabel!==null&&(!order.serviceLabel.trim()||order.serviceLabel.length>80||/\p{Cc}/u.test(order.serviceLabel)))throw new DomainError('INVALID_INPUT','Invalid order reference.');
+}
+
+export function assertOrderItemsUnchanged(items:readonly CartItem[],ordered:readonly CartItem[]):void{
+ const inventory=(lines:readonly CartItem[])=>{const counts=new Map<string,number>();for(const item of lines){const key=item.variantId+'|'+(item.originalUnitPriceRappen??item.unitPriceRappen)+'|'+(item.ticketUses??0);counts.set(key,(counts.get(key)??0)+item.quantity);}return JSON.stringify([...counts].sort(([a],[b])=>a.localeCompare(b)));};
+ if(inventory(items)!==inventory(ordered))throw new DomainError('CONFLICT','Release the order before changing its items. Discounts can be applied during payment.');
 }

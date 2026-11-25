@@ -2,10 +2,11 @@ import { t } from './preferences.js';
 import React, { useId, useLayoutEffect, useReducer, useRef } from 'react';
 import { initialNavigationOverlay, navigationOverlayReducer, transitionMilliseconds } from './application-navigation-state.js';
 
-export type ApplicationView = 'pos' | 'catalog' | 'import' | 'sales' | 'reconciliation' | 'system' | 'development' | 'settings' | 'presets' | 'tickets' | 'team' | 'promotions';
+export type ApplicationView = 'pos' | 'catalog' | 'import' | 'sales' | 'reconciliation' | 'system' | 'development' | 'settings' | 'presets' | 'tickets' | 'team' | 'promotions' | 'orders';
 
 const views: readonly { id: ApplicationView; label: string }[] = [
   { id: 'pos', label: 'POS' },
+  { id: 'orders', label: 'Orders' },
   { id: 'catalog', label: 'Catalog' },
   { id: 'promotions', label:'Vouchers & discounts' },
   { id: 'presets', label: 'Presets' },

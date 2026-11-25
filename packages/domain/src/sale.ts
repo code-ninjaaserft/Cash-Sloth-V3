@@ -1,6 +1,6 @@
 import { validateCart } from './cart.js';
 import { calculateCashPayment, calculateCashQuote } from './money.js';
-import { assertIdentifier, DomainError, type CheckoutAttempt, type Sale } from './models.js';
+import { validateOrderContext, assertIdentifier, DomainError, type CheckoutAttempt, type Sale } from './models.js';
 
 function assertTimestamp(value: string): void {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(value) || !Number.isFinite(Date.parse(value))) throw new DomainError('INVALID_INPUT', 'Invalid financial timestamp.');
@@ -26,6 +26,7 @@ export function validateCheckoutAttempt(attempt: CheckoutAttempt): void {
 }
 
 export function validateSale(sale: Sale): void {
+  if(sale.order)validateOrderContext(sale.order);
   assertIdentifier(sale.id); assertIdentifier(sale.idempotencyKey);
   validateCart({ id: sale.cartId, revision: sale.cartRevision, items: sale.items, subtotalRappen: sale.subtotalRappen });
   if (sale.items.length === 0) throw new DomainError('EMPTY_CART', 'A sale must contain at least one item.');

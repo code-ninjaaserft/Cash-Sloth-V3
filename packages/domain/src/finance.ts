@@ -1,6 +1,6 @@
 import { validateCart } from './cart.js';
 import { addMoney, assertQuantity, assertRappen, calculateCashPayment, roundCashRappen } from './money.js';
-import { assertIdentifier, DomainError, type Cart, type CheckoutAttempt, type Sale, type SaleItem } from './models.js';
+import { validateOrderContext, assertIdentifier, DomainError, type OrderContext, type Cart, type CheckoutAttempt, type Sale, type SaleItem } from './models.js';
 
 export type PaymentMethod = 'cash' | 'card' | 'twint' | 'voucher';
 export type PaymentStatus = 'prepared' | 'reported' | 'confirmed' | 'uncertain' | 'failed' | 'excluded';
@@ -22,6 +22,7 @@ export interface PaymentAllocation {
   readonly operatorConfirmed: true; readonly confirmedAt: string;
 }
 export interface FinancialSale {
+  readonly order?:OrderContext|undefined;
   readonly tipRappen?: number | undefined;
   readonly eventId?: string | null | undefined;
   readonly eventTitle?: string | null | undefined;
@@ -134,6 +135,7 @@ export function paymentAllocation(attempt: PaymentAttempt): PaymentAllocation {
   return { attemptId: attempt.id, method: attempt.method, amountRappen: attempt.appliedRappen, cashTenderedRappen: attempt.cashTenderedRappen, changeRappen: attempt.changeRappen, operatorConfirmed: true, confirmedAt: attempt.confirmedAt };
 }
 export function validateFinancialSale(sale: FinancialSale): void {
+  if(sale.order)validateOrderContext(sale.order);
   const totalBeforeRounding = addMoney(sale.subtotalRappen, sale.tipRappen ?? 0);
   if (sale.eventId != null) assertIdentifier(sale.eventId);
   if (sale.eventTitle != null && (typeof sale.eventTitle !== 'string' || !sale.eventTitle.trim() || sale.eventTitle.length > 200 || /\p{Cc}/u.test(sale.eventTitle))) throw new DomainError('INVALID_INPUT', 'Invalid sale event title.');
@@ -159,7 +161,7 @@ export function validateFinancialSale(sale: FinancialSale): void {
   if (digital > totalBeforeRounding || total !== sale.amountDueRappen || total !== sale.actualPaidRappen || (seenCash ? addMoney(digital, roundCashRappen(totalBeforeRounding - digital)) !== total : sale.roundingAdjustmentRappen !== 0)) throw new DomainError('INVALID_INPUT', 'Applied payments must equal the final payable amount.');
 }
 export function financialSaleFromLegacy(sale: Sale): FinancialSale {
-  const converted: FinancialSale = { id: sale.id, checkoutSessionId: sale.idempotencyKey, cartId: sale.cartId, cartRevision: sale.cartRevision, completedAt: sale.completedAt,
+  const converted: FinancialSale = { ...(sale.order?{order:sale.order}:{}), id: sale.id, checkoutSessionId: sale.idempotencyKey, cartId: sale.cartId, cartRevision: sale.cartRevision, completedAt: sale.completedAt,
     items: sale.items, subtotalRappen: sale.subtotalRappen, roundingAdjustmentRappen: sale.roundingAdjustmentRappen, amountDueRappen: sale.amountDueRappen, actualPaidRappen: sale.payment.cashAppliedRappen,
     source: 'legacy', payments: [{ attemptId: sale.idempotencyKey, method: 'cash', amountRappen: sale.payment.cashAppliedRappen, cashTenderedRappen: sale.payment.cashReceivedRappen, changeRappen: sale.payment.changeRappen, operatorConfirmed: true, confirmedAt: sale.payment.confirmedAt }] };
   validateFinancialSale(converted); return converted;

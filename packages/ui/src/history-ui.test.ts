@@ -23,4 +23,9 @@ describe('sales history filter input', () => {
     expect(historySortFromValue('date-desc')).toEqual({ field: 'date', direction: 'desc' });
     expect(() => historySortFromValue('date-DESC;DELETE')).toThrow();
   });
+  it('normalizes receipt scans, order numbers and named table searches',()=>{
+    expect(historyFiltersFromDraft({...EMPTY_HISTORY_DRAFT,orderNumber:'#12',serviceLabel:' Tisch Müller ',receiptCode:' cc123456789abcde '})).toMatchObject({orderNumber:12,serviceLabel:'Tisch Müller',receiptCode:'CC123456789ABCDE'});
+    for(const orderNumber of ['0','100','1.2','abc'])expect(()=>historyFiltersFromDraft({...EMPTY_HISTORY_DRAFT,orderNumber})).toThrow();
+  });
+
 });

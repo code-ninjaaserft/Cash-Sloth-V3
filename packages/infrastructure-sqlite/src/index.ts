@@ -13,3 +13,5 @@ export { createPresetStore } from './preset-store.js';
 export { createTicketStore } from './ticket-store.js';
 
 export {createPromotionStore} from './promotion-store.js';
+
+export * from './order-store.js';

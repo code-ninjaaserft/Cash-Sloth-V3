@@ -161,7 +161,8 @@ export function createPaymentsService(store: FinanceStore, runtime: PosRuntime):
       const balance = checkoutBalance(session.cart.subtotalRappen, attempts, session.tipRappen ?? 0);
       const confirmed = attempts.filter((attempt) => attempt.status === 'confirmed');
       if (!balance.settled || confirmed.length === 0) throw new DomainError('OUTSTANDING_BALANCE', 'The sale requires confirmed allocations covering its final payable amount.');
-      const sale: FinancialSale = { tipRappen: session.tipRappen ?? 0, eventId: store.getEventId?.() ?? null, eventTitle: store.getEventTitle?.() ?? null, id: runtime.newId(), checkoutSessionId: session.id, cartId: session.cart.id, cartRevision: session.cart.revision, completedAt: runtime.now(), items: session.cart.items,
+      const order=store.pos.prepareSaleOrder?.(session.cart,runtime.now());
+      const sale: FinancialSale = { ...(order?{order}:{}), tipRappen: session.tipRappen ?? 0, eventId: store.getEventId?.() ?? null, eventTitle: store.getEventTitle?.() ?? null, id: runtime.newId(), checkoutSessionId: session.id, cartId: session.cart.id, cartRevision: session.cart.revision, completedAt: runtime.now(), items: session.cart.items,
         subtotalRappen: session.cart.subtotalRappen, roundingAdjustmentRappen: balance.roundingAdjustmentRappen, amountDueRappen: balance.finalPayableRappen, actualPaidRappen: balance.confirmedAppliedRappen, payments: confirmed.map(paymentAllocation), source: 'payments' };
       validateFinancialSale(sale); store.insertFinancialSale(sale); store.pos.consumeCart(session.cart.id, session.cart.revision); store.putSession({ ...session, status: 'completed', saleId: sale.id }); event('session', session.id, 'completed'); return sale;
     })),
