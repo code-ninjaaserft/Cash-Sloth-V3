@@ -33,9 +33,9 @@ test('product tickets preview, scan/confirm, survive restart and remain isolated
    await page.getByRole('button',{name:'Complete transaction',exact:true}).click();
   };
   await finish();
-  await expect(page.getByRole('heading',{name:'Tickets / vouchers (2)',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Tickets (2)',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Print tickets',exact:true})).toBeDisabled();
-  await expect(page.locator('.ticket-barcode')).toBeVisible();
+  await expect(page.locator('.ticket-paper .ticket-barcode')).toBeVisible();
   await expect(page.locator('.ticket-paper')).not.toContainText('Ticket status');
   await expect(page.locator('.ticket-paper')).not.toContainText('Remaining uses');
   const firstCode=await page.locator('.ticket-paper code').innerText();

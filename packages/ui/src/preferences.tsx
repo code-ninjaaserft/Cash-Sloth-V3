@@ -118,7 +118,7 @@ export function Settings({ orders, customerDisplay, ticketdesk, demo, demoMode =
   return <main className="pos-content settings-page">
     <section className="settings-card"><h2>{t("Cash drawer")}</h2><button type="button" disabled>{t("Open drawer")}</button><p>{t("Placeholder — the cash drawer is not connected yet.")}</p></section><header className="pos-heading"><div><span className="pos-label">Cash Sloth V3</span><h1>{t('Settings')}</h1><p>{t('Changes apply immediately and are saved on this device.')}</p></div></header>
     {orders&&<OrderSettingsPanel api={orders}/>}
-    {demo && <section className="settings-card"><h2>{t('Demo mode')}</h2><p>{t('Demonstrate sales without changing real history, revenue, products or presets. Demo changes are discarded when you leave. Restarting returns to normal mode.')}</p>
+    {demo && <section className="settings-card"><h2>{t('Demo mode')}</h2><p>{t('Demonstrate sales without changing real history or revenue. Each demo starts with empty sales history. Ending demo mode clears this history and invalidates all demo tickets and vouchers. Restarting returns to normal mode.')}</p>
       <button type="button" aria-pressed={demoMode} disabled={switchingDemo} onClick={async () => {
         setSwitchingDemo(true); setDemoError(null);
         try { const result = await demo.setMode({ enabled: !demoMode }); if (!result.ok) { setDemoError(t(result.error)); setSwitchingDemo(false); } else window.dispatchEvent(new Event('cash-sloth-mode-changed')); }

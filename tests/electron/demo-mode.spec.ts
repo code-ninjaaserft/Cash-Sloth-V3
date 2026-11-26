@@ -37,9 +37,15 @@ test('demo sales stay isolated, both screens are marked, mode changes require id
     const categoriesBefore = await page.evaluate(() => window.cashSloth!.catalog.listCategories({ includeInactive: true }));
     expect(await page.evaluate(() => window.cashSloth!.catalog.createCategory({ name: 'Demo only', parentId: null, active: true, position: 99 }))).toMatchObject({ ok: true });
     await finishCashSale('DC');
-    expect(await page.evaluate(() => window.cashSloth!.payments.listRecentSales({}))).toEqual(realHistory);
-    // History removal must never touch the real ledger during demonstration.
-    expect(await page.evaluate(async () => { try { await window.cashSloth!.history.removeSale({ saleId: 'any-sale', reason: 'demo' }); return false; } catch { return true; } })).toBe(true);
+    const demoHistory=await page.evaluate(() => window.cashSloth!.payments.listRecentSales({}));
+    expect(demoHistory.ok&&demoHistory.value.length).toBe(1);
+    expect(demoHistory).not.toEqual(realHistory);
+    // Real sale references are unavailable in the isolated demonstration ledger.
+    const realId=realHistory.ok?realHistory.value[0]!.id:'';
+    expect(await page.evaluate(saleId=>window.cashSloth!.payments.getSaleDetails({saleId}),realId)).toMatchObject({ok:false});
+    await navigateTo(page,'Sales history');
+    await expect(page.getByRole('heading',{name:'Demo sales history',exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:'Open sale '+realId,exact:true})).toHaveCount(0);
     await page.reload(); await expect(page.locator('.demo-banner')).toBeVisible();
     await page.getByRole('button', { name: 'Add Chocolate', exact: true }).click();
     expect(await page.evaluate(() => window.cashSloth!.demo!.setMode({ enabled: false }))).toMatchObject({ ok: false });

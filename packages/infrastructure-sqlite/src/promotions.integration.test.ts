@@ -90,4 +90,36 @@ describe('discounts and local vouchers',()=>{
   expect(()=>db.sqlite.prepare('UPDATE financial_sales SET subtotal_rappen=0 WHERE id=?').run(sale.id)).toThrow();
  });
 
+ it('persists a product-voucher variant and frees one matching unit without discounting sibling variants',()=>{
+  db.sqlite.prepare('INSERT INTO product_variants (id,product_id,name,unit_price_rappen,active) VALUES (?,?,?,?,1)').run('variant-chocolate-large','product-chocolate','Large',500);
+  const request={operationId:runtime.newId(),name:'One large chocolate',kind:'freeProduct' as const,value:0,productId:'product-chocolate',variantId:'variant-chocolate-large',maxUses:2,expiresAt:null};
+  const voucher=value(promo().issue(request));expect(value(promo().issue(request))).toEqual(voucher);expect(voucher.benefitLabel).toBe('Chocolate — Large');
+  db.close();db=openDatabase(join(directory,'test.sqlite'));runMigrations(db);
+  expect(value(promo().getState({})).vouchers[0]).toMatchObject({variantId:'variant-chocolate-large',benefitLabel:'Chocolate — Large'});
+  let c=cart(2);const before=c;expect(promo().apply({operationId:runtime.newId(),cartId:c.id,expectedRevision:c.revision,rule:null,voucherCode:voucher.code})).toMatchObject({ok:false,error:{code:'INVALID_INPUT'}});expect(value(pos().getCart({})).cart).toEqual(before);
+  c=value(pos().addItem({cartId:c.id,expectedRevision:c.revision,variantId:'variant-chocolate-large'}));c=value(pos().addItem({cartId:c.id,expectedRevision:c.revision,variantId:'variant-chocolate-large'}));
+  c=value(promo().apply({operationId:runtime.newId(),cartId:c.id,expectedRevision:c.revision,rule:null,voucherCode:voucher.code}));expect(c.subtotalRappen).toBe(994);
+  expect(c.items.filter(i=>i.unitPriceRappen===0)).toMatchObject([{variantId:'variant-chocolate-large',quantity:1}]);expect(c.items.find(i=>i.variantId==='variant-chocolate-default')?.lineTotalRappen).toBe(494);
+  const sale=settle(c);expect(sale.items).toEqual(c.items);expect(value(promo().getState({})).vouchers[0]?.uses).toBe(1);
+ });
+ it('retains variant scope on saved templates and applies free, percentage and fixed discounts only to that variant',()=>{
+  db.sqlite.prepare('INSERT INTO product_variants (id,product_id,name,unit_price_rappen,active) VALUES (?,?,?,?,1)').run('variant-chocolate-large','product-chocolate','Large',500);
+  let c=cart(2);c=value(pos().addItem({cartId:c.id,expectedRevision:c.revision,variantId:'variant-chocolate-large'}));
+  for(const [kind,amount,expected] of [['percent',5000,744],['amount',100,894],['freeProduct',0,494]] as const){
+   const rule={name:'Scoped discount',kind,value:amount,productId:'product-chocolate',variantId:'variant-chocolate-large'};
+   const template=value(promo().saveTemplate({operationId:runtime.newId(),id:null,rule})).templates.at(-1)!;expect(template.variantId).toBe(rule.variantId);
+   c=value(promo().apply({operationId:runtime.newId(),cartId:c.id,expectedRevision:c.revision,rule, voucherCode:null}));expect(c.subtotalRappen).toBe(expected);expect(c.items.find(i=>i.variantId==='variant-chocolate-default')?.lineTotalRappen).toBe(494);
+   c=value(promo().clear({operationId:runtime.newId(),cartId:c.id,expectedRevision:c.revision}));expect(c.subtotalRappen).toBe(994);
+  }
+ });
+ it('rejects mismatched, missing and inactive variant targets without issuing vouchers or saving templates',()=>{
+  const rule={name:'Invalid scope',kind:'freeProduct' as const,value:0,productId:'product-chocolate',variantId:'variant-coffee-default'};
+  for(const target of [rule,{...rule,productId:null},{...rule,variantId:'missing-variant'}]){
+   expect(promo().saveTemplate({operationId:runtime.newId(),id:null,rule:target})).toMatchObject({ok:false,error:{code:'INVALID_INPUT'}});
+   expect(promo().issue({...target,operationId:runtime.newId(),maxUses:1,expiresAt:null})).toMatchObject({ok:false,error:{code:'INVALID_INPUT'}});
+  }
+  db.sqlite.prepare('UPDATE product_variants SET active=0 WHERE id=?').run('variant-chocolate-default');
+  expect(promo().issue({...rule,variantId:'variant-chocolate-default',operationId:runtime.newId(),maxUses:1,expiresAt:null})).toMatchObject({ok:false,error:{code:'INVALID_INPUT'}});
+  expect(value(promo().getState({}))).toEqual({templates:[],vouchers:[]});
+ });
 });

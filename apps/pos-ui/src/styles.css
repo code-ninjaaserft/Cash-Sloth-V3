@@ -1658,6 +1658,8 @@ body:has(.demo-banner) .checkout-backdrop { top: 76px; }
 .ticket-batch select { display: block; width: 100%; margin: 8px 0 20px; }
 .ticket-paper { width: min(100%, 80mm); margin: 16px auto; box-sizing: border-box; padding: 16px 12px; background: #fff; color: #111; border: 1px dashed #aaa; font-family: Arial, sans-serif; text-align: center; }
 .ticket-paper header { display: grid; gap: 8px; padding-bottom: 12px; border-bottom: 1px dashed #777; }
+.ticket-paper .document-kind { display: block; border: 3px solid #111; padding: 10px 6px; font-size: 28px; font-weight: 800; line-height: 1.1; letter-spacing: 1px; text-transform: uppercase; }
+.voucher-kind { font-weight: 700; }
 .ticket-paper h3 { font-size: 20px; overflow-wrap: anywhere; }
 .ticket-paper p { font-size: 13px; }
 .ticket-paper code { display: block; font-size: 15px; letter-spacing: 1px; color: #000; }

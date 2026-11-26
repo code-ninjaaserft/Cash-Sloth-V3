@@ -201,7 +201,7 @@ app.whenReady().then(async () => {
       };
       return handleValidatedIpc(sender, identity(window, fromInfo ? orderInfoUrl : fromKitchen ? kitchenUrl : fromKiosk ? kioskUrl : fromTicketdesk ? ticketdeskUrl : uiUrl), args, contract, (input) => {
         if (switchingMode) throw new Error('Mode switch in progress.');
-        if (demoMode && ['history:removeSale', 'history:removeHistory', 'payments:prepareRefund', 'payments:confirmRefund', 'payments:reconcile'].includes(contract.channel)) throw new Error('Unavailable in demo mode.');
+        if (demoMode && ['payments:prepareRefund', 'payments:confirmRefund', 'payments:reconcile'].includes(contract.channel)) throw new Error('Unavailable in demo mode.');
         return execute(input);
       });
     });
@@ -219,7 +219,7 @@ app.whenReady().then(async () => {
   registerOperation(POS_IPC_CONTRACTS.completeSale, (input) => pos.completeSale(input));
   registerOperation(POS_IPC_CONTRACTS.reconcileCheckout, (input) => pos.reconcileCheckout(input));
   registerOperation(POS_IPC_CONTRACTS.getSale, (input) => pos.getSale(input));
-  registerOperation(POS_IPC_CONTRACTS.listRecentSales, (input) => live.pos.listRecentSales(input));
+  registerOperation(POS_IPC_CONTRACTS.listRecentSales, (input) => pos.listRecentSales(input));
   let presets = createPresetService(createPresetStore(database), { newId: randomUUID, now: () => new Date().toISOString() });
   registerOperation(PRESETS_IPC_CONTRACTS.update, (input) => presets.update(input));
   registerOperation(PRESETS_IPC_CONTRACTS.getState, (input) => presets.getState(input));
@@ -255,7 +255,7 @@ app.whenReady().then(async () => {
   registerOperation(PAYMENTS_IPC_CONTRACTS.reportPaymentOutcome, (input) => payments.reportPaymentOutcome(input));
   registerOperation(PAYMENTS_IPC_CONTRACTS.completeCheckout, (input) => payments.completeCheckout(input));
   registerOperation(PAYMENTS_IPC_CONTRACTS.getSaleDetails, (input) => payments.getSaleDetails(input));
-  registerOperation(PAYMENTS_IPC_CONTRACTS.listRecentSales, (input) => live.payments.listRecentSales(input));
+  registerOperation(PAYMENTS_IPC_CONTRACTS.listRecentSales, (input) => payments.listRecentSales(input));
   registerOperation(PAYMENTS_IPC_CONTRACTS.prepareRefund, (input) => payments.prepareRefund(input));
   registerOperation(PAYMENTS_IPC_CONTRACTS.getRefundAttempt, (input) => payments.getRefundAttempt(input));
   registerOperation(PAYMENTS_IPC_CONTRACTS.confirmRefund, (input) => payments.confirmRefund(input));
@@ -272,7 +272,7 @@ app.whenReady().then(async () => {
   registerOperation(MANAGEMENT_IPC_CONTRACTS.previewDemoCatalog, (input) => management.previewDemoCatalog(input));
   registerOperation(MANAGEMENT_IPC_CONTRACTS.applyImportPlan, (input) => management.applyImportPlan(input));
   registerOperation(MANAGEMENT_IPC_CONTRACTS.getImportOperation, (input) => management.getImportOperation(input));
-  const history = createHistoryService(createHistoryStore(database), { now: () => new Date().toISOString() });
+  let history = createHistoryService(createHistoryStore(database), { now: () => new Date().toISOString() });
   let receipts=history;
   registerOperation(HISTORY_IPC_CONTRACTS.getReceiptCode,input=>receipts.getReceiptCode(input));
   registerOperation(HISTORY_IPC_CONTRACTS.previewRemoval, (input) => history.previewRemoval(input));
@@ -346,7 +346,7 @@ app.whenReady().then(async () => {
   registerOperation(ORDERS_CONTRACTS.accept,input=>orders.accept(input));
   registerOperation(ORDERS_CONTRACTS.release,input=>orders.release(input));
   registerOperation(ORDERS_CONTRACTS.status,input=>orders.status(input));
-  const live = { receipts, orders, promotions,tickets, pos, presets, catalog, payments, management, displayCartStore, displayFinanceStore, displayPresetStore, display };
+  const live = { history, receipts, orders, promotions,tickets, pos, presets, catalog, payments, management, displayCartStore, displayFinanceStore, displayPresetStore, display };
   registerOperation(DEMO_CONTRACTS.getState, () => ({ enabled: demoMode, sessionId: demoSessionId }));
   registerFileOperation(DEMO_CONTRACTS.setMode, async ({ enabled }) => {
     if (switchingMode) return { ok: false as const, error: 'Please wait for the mode switch.' };
@@ -362,7 +362,13 @@ app.whenReady().then(async () => {
         database!.sqlite.prepare('VACUUM INTO ?').run(file);
         nextDatabase = openDatabase(file, { ticketMode: 'demo' });
         const clock = { newId: randomUUID, now: () => new Date().toISOString() };
-        receipts=createHistoryService(createHistoryStore(nextDatabase),clock);
+        const demoHistory=createHistoryService(createHistoryStore(nextDatabase),clock);
+        // Purge only the temporary copy: a new demonstration has no real sales.
+        const preview=demoHistory.previewRemoval({scope:'device',eventId:null});
+        if(!preview.ok)throw new Error('Could not prepare empty demo history.');
+        const cleared=demoHistory.removeHistory({scope:'device',eventId:null,operationId:randomUUID(),expectedVersion:preview.value.version,reason:'Start a new isolated demo session'});
+        if(!cleared.ok)throw new Error('Could not initialise empty demo history.');
+        history=demoHistory;receipts=demoHistory;
         orders=createOrderService(createOrderStore(nextDatabase),clock);
         promotions=createPromotionService(createPromotionStore(nextDatabase),promotionRuntime);
         tickets = createTicketService(createTicketStore(nextDatabase), clock);
@@ -375,8 +381,8 @@ app.whenReady().then(async () => {
         display = createCustomerDisplayService({ transaction: displayCartStore.transaction, getCart: () => displayCartStore.getDraftCart(), getCheckout: () => { const current = displayFinanceStore.getOpenSession(); return current ? { session: current, attempts: displayFinanceStore.listPaymentAttempts(current.id) } : null; }, getEventLogo: () => displayPresetStore.active()?.logo ?? null, getEventTitle: () => displayFinanceStore.getEventTitle?.() ?? null });
         demoDatabase = nextDatabase; demoDirectory = nextDirectory; demoSessionId = randomUUID();
       } else {
-        ({ receipts,orders,promotions,tickets, pos, presets, catalog, payments, management, displayCartStore, displayFinanceStore, displayPresetStore, display } = live);
         demoDatabase?.close(); demoDatabase = null;
+        ({ history,receipts,orders,promotions,tickets, pos, presets, catalog, payments, management, displayCartStore, displayFinanceStore, displayPresetStore, display } = live);
         if (demoDirectory) removeDemoDirectory(demoDirectory);
         demoDirectory = null; demoSessionId = null;
       }
@@ -386,7 +392,7 @@ app.whenReady().then(async () => {
       return { ok: true as const, value: { enabled: demoMode, sessionId: demoSessionId } };
     } catch {
       if (enabled) {
-        ({ receipts,orders,promotions,tickets, pos, presets, catalog, payments, management, displayCartStore, displayFinanceStore, displayPresetStore, display } = live);
+        ({ history,receipts,orders,promotions,tickets, pos, presets, catalog, payments, management, displayCartStore, displayFinanceStore, displayPresetStore, display } = live);
         nextDatabase?.close();
         if (nextDirectory) removeDemoDirectory(nextDirectory);
       }
